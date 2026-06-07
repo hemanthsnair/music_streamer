@@ -7,6 +7,7 @@ import songRoutes from './routes/songs.js';
 import artistRoutes from './routes/artists.js';
 import albumRoutes from './routes/albums.js';
 import playlistRoutes from './routes/playlists.js';
+import importRoutes from './routes/import.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -22,6 +23,7 @@ app.use('/api/songs', songRoutes);
 app.use('/api/artists', artistRoutes);
 app.use('/api/albums', albumRoutes);
 app.use('/api/playlists', playlistRoutes);
+app.use('/api/import', importRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

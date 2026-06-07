@@ -95,13 +95,27 @@ async function initializeSchema() {
         artistId INTEGER NOT NULL,
         albumId INTEGER,
         duration INTEGER NOT NULL,
-        audioUrl TEXT NOT NULL,
+        audioUrl TEXT,
         genre TEXT,
         playCount INTEGER DEFAULT 0,
+        sourceType TEXT DEFAULT 'local',
+        externalId TEXT,
         FOREIGN KEY(artistId) REFERENCES artists(id),
         FOREIGN KEY(albumId) REFERENCES albums(id)
       )
     `);
+
+    // Migrate existing DB if columns don't exist
+    try {
+      await run(`ALTER TABLE songs ADD COLUMN sourceType TEXT DEFAULT 'local'`);
+    } catch (e) {
+      // column already exists
+    }
+    try {
+      await run(`ALTER TABLE songs ADD COLUMN externalId TEXT`);
+    } catch (e) {
+      // column already exists
+    }
 
     // 5. Playlists Table
     await run(`

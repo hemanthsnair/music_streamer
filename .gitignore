@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+server/node_modules/
+
+# Local SQLite database
+server/database.db
+
+# Vite cache & builds
+.vite/
+dist/
+
+# Editor files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Scraping & Debugging scripts
+server/debug_yt_playlist.json
+server/inspect_yt_json.js
+server/test_health.js
+server/test_spotify_url_info.js
+server/test_youtube_sr.js
+server/test_yt_playlist_web.js
+server/test_yt_search.js
+server/test_yt_search_find.js
+server/test_yt_search_playlist.js
+server/test_ytpl.js

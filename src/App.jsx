@@ -6,6 +6,8 @@ import DashboardView from './components/DashboardView';
 import SongsView from './components/SongsView';
 import ArtistsView from './components/ArtistsView';
 import PlaylistsView from './components/PlaylistsView';
+import GlobalSearch from './components/GlobalSearch';
+import ImportPlaylistModal from './components/ImportPlaylistModal';
 import { X } from 'lucide-react';
 
 const App = () => {
@@ -31,12 +33,17 @@ const App = () => {
 
   // 5. Modals
   const [showCreatePlaylistModal, setShowCreatePlaylistModal] = useState(false);
+  const [showImportPlaylistModal, setShowImportPlaylistModal] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [newPlaylistDesc, setNewPlaylistDesc] = useState('');
   const [playlistFormLoading, setPlaylistFormLoading] = useState(false);
 
   // Audio HTML5 Ref
   const audioRef = useRef(new Audio());
+
+  // YouTube Iframe Player
+  const ytPlayerRef = useRef(null);
+  const [ytPlayerReady, setYtPlayerReady] = useState(false);
 
   // Fetch logged in user's profile on token change
   useEffect(() => {
@@ -116,20 +123,76 @@ const App = () => {
     setActiveTab('dashboard');
   };
 
+  // Load and initialize YouTube player iframe API
+  useEffect(() => {
+    const hasScript = document.querySelector('script[src="https://www.youtube.com/iframe_api"]');
+    if (!hasScript) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+    }
+
+    window.onYouTubeIframeAPIReady = () => {
+      createYTPlayer();
+    };
+
+    if (window.YT && window.YT.Player) {
+      createYTPlayer();
+    }
+
+    function createYTPlayer() {
+      try {
+        new window.YT.Player('youtube-iframe-player', {
+          height: '0',
+          width: '0',
+          videoId: '',
+          playerVars: {
+            playsinline: 1,
+            controls: 0,
+            disablekb: 1,
+            fs: 0,
+            rel: 0
+          },
+          events: {
+            onReady: (event) => {
+              ytPlayerRef.current = event.target;
+              setYtPlayerReady(true);
+              event.target.setVolume(volume * 100);
+            },
+            onStateChange: (event) => {
+              if (event.data === 0) { // ENDED
+                handleNextTrack();
+              }
+            }
+          }
+        });
+      } catch (err) {
+        console.error('Error creating YouTube player:', err);
+      }
+    }
+  }, []);
+
   // Audio HTML5 Event Listeners
   useEffect(() => {
     const audio = audioRef.current;
 
     const onTimeUpdate = () => {
-      setCurrentTime(audio.currentTime);
+      if (currentSong?.sourceType !== 'youtube') {
+        setCurrentTime(audio.currentTime);
+      }
     };
 
     const onLoadedMetadata = () => {
-      setDuration(audio.duration);
+      if (currentSong?.sourceType !== 'youtube') {
+        setDuration(audio.duration);
+      }
     };
 
     const onEnded = () => {
-      handleNextTrack();
+      if (currentSong?.sourceType !== 'youtube') {
+        handleNextTrack();
+      }
     };
 
     audio.addEventListener('timeupdate', onTimeUpdate);
@@ -141,42 +204,100 @@ const App = () => {
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
       audio.removeEventListener('ended', onEnded);
     };
-  }, [queue, queueIndex]);
+  }, [queue, queueIndex, currentSong]);
 
-  // Control Audio Play / Pause
+  // Sync playback for both players
   useEffect(() => {
     if (currentSong) {
+      const isYt = currentSong.sourceType === 'youtube';
       const audio = audioRef.current;
-      
-      // If src changed
-      if (audio.src !== currentSong.audioUrl) {
-        audio.src = currentSong.audioUrl;
-        audio.load();
-      }
 
-      if (isPlaying) {
-        audio.play().catch(err => {
-          console.warn('Playback error, user interaction required:', err);
-          setIsPlaying(false);
-        });
+      if (isYt) {
+        if (!audio.paused) {
+          audio.pause();
+        }
+
+        if (ytPlayerReady && ytPlayerRef.current) {
+          try {
+            const currentVideoId = ytPlayerRef.current.getVideoData?.()?.video_id;
+            if (currentVideoId !== currentSong.externalId) {
+              if (isPlaying) {
+                ytPlayerRef.current.loadVideoById(currentSong.externalId);
+              } else {
+                ytPlayerRef.current.cueVideoById(currentSong.externalId);
+              }
+            } else {
+              if (isPlaying) {
+                ytPlayerRef.current.playVideo();
+              } else {
+                ytPlayerRef.current.pauseVideo();
+              }
+            }
+          } catch (err) {
+            console.error('YouTube player playback control error:', err);
+          }
+        }
       } else {
-        audio.pause();
+        if (ytPlayerReady && ytPlayerRef.current) {
+          try {
+            ytPlayerRef.current.pauseVideo();
+          } catch (err) {}
+        }
+
+        if (audio.src !== currentSong.audioUrl) {
+          audio.src = currentSong.audioUrl;
+          audio.load();
+        }
+
+        if (isPlaying) {
+          audio.play().catch(err => {
+            console.warn('Playback error, user interaction required:', err);
+            setIsPlaying(false);
+          });
+        } else {
+          audio.pause();
+        }
       }
     }
-  }, [currentSong, isPlaying]);
+  }, [currentSong, isPlaying, ytPlayerReady]);
 
-  // Volume control syncing
+  // Sync volume for both players
   useEffect(() => {
     audioRef.current.volume = volume;
-  }, [volume]);
+    if (ytPlayerReady && ytPlayerRef.current && typeof ytPlayerRef.current.setVolume === 'function') {
+      try {
+        ytPlayerRef.current.setVolume(volume * 100);
+      } catch (err) {}
+    }
+  }, [volume, ytPlayerReady]);
+
+  // Sync currentTime and duration for YouTube playback
+  useEffect(() => {
+    let interval;
+    if (isPlaying && currentSong?.sourceType === 'youtube' && ytPlayerReady && ytPlayerRef.current) {
+      interval = setInterval(() => {
+        try {
+          if (ytPlayerRef.current && typeof ytPlayerRef.current.getCurrentTime === 'function') {
+            setCurrentTime(ytPlayerRef.current.getCurrentTime());
+            setDuration(ytPlayerRef.current.getDuration() || 0);
+          }
+        } catch (err) {}
+      }, 500);
+    }
+    return () => clearInterval(interval);
+  }, [isPlaying, currentSong, ytPlayerReady]);
 
   // Playback Operations
   const handlePlaySong = async (song, songList = []) => {
-    // Record API play count asynchronously
-    fetch(`http://localhost:5000/api/songs/${song.id}/play`, { method: 'POST' }).catch(() => {});
+    if (song.id && !String(song.id).startsWith('temp-')) {
+      // Record API play count asynchronously
+      fetch(`http://localhost:5000/api/songs/${song.id}/play`, { method: 'POST' }).catch(() => {});
+    }
 
     setCurrentSong(song);
     setIsPlaying(true);
+    setCurrentTime(0);
+    setDuration(song.duration || 0);
     
     if (songList.length > 0) {
       setQueue(songList);
@@ -212,8 +333,17 @@ const App = () => {
   };
 
   const handleSeek = (time) => {
-    audioRef.current.currentTime = time;
-    setCurrentTime(time);
+    if (currentSong?.sourceType === 'youtube') {
+      if (ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+        try {
+          ytPlayerRef.current.seekTo(time, true);
+        } catch (err) {}
+      }
+      setCurrentTime(time);
+    } else {
+      audioRef.current.currentTime = time;
+      setCurrentTime(time);
+    }
   };
 
   // Catalog / User Interaction Operations
@@ -378,6 +508,19 @@ const App = () => {
       );
     }
 
+    if (activeTab === 'search') {
+      return (
+        <GlobalSearch
+          token={token}
+          currentSongId={currentSong?.id}
+          isPlaying={isPlaying}
+          onPlaySong={handlePlaySong}
+          playlists={playlists}
+          onAddToPlaylist={handleAddToPlaylist}
+        />
+      );
+    }
+
     if (activeTab.startsWith('playlist-')) {
       const pId = activeTab.split('-')[1];
       return (
@@ -413,6 +556,7 @@ const App = () => {
         user={user}
         onLogout={handleLogout}
         onCreatePlaylistClick={() => setShowCreatePlaylistModal(true)}
+        onImportPlaylistClick={() => setShowImportPlaylistModal(true)}
       />
 
       {/* Main content body */}
@@ -499,6 +643,24 @@ const App = () => {
           </div>
         </div>
       )}
+
+      {/* Import Playlist Modal overlay */}
+      {showImportPlaylistModal && (
+        <ImportPlaylistModal
+          token={token}
+          onClose={() => setShowImportPlaylistModal(false)}
+          onImportSuccess={async (playlistId) => {
+            setShowImportPlaylistModal(false);
+            await fetchPlaylists();
+            setActiveTab(`playlist-${playlistId}`);
+          }}
+        />
+      )}
+
+      {/* Hidden YouTube Iframe Player container */}
+      <div style={{ position: 'absolute', top: -9999, left: -9999, pointerEvents: 'none' }}>
+        <div id="youtube-iframe-player"></div>
+      </div>
     </div>
   );
 };

@@ -1,11 +1,12 @@
 import React from 'react';
-import { LayoutDashboard, Music, Users, ListMusic, LogOut, Plus, Disc } from 'lucide-react';
+import { LayoutDashboard, Music, Users, ListMusic, LogOut, Plus, Disc, Search, Download } from 'lucide-react';
 
-const Sidebar = ({ activeTab, setActiveTab, playlists, user, onLogout, onCreatePlaylistClick }) => {
+const Sidebar = ({ activeTab, setActiveTab, playlists, user, onLogout, onCreatePlaylistClick, onImportPlaylistClick }) => {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'songs', label: 'Songs', icon: Music },
     { id: 'artists', label: 'Artists', icon: Users },
+    { id: 'search', label: 'Global Search', icon: Search },
   ];
 
   return (
@@ -47,15 +48,26 @@ const Sidebar = ({ activeTab, setActiveTab, playlists, user, onLogout, onCreateP
       <div style={styles.playlistSection}>
         <div style={styles.playlistHeader}>
           <p style={styles.sectionHeader}>Playlists</p>
-          <button
-            type="button"
-            id="sidebar-create-playlist-btn"
-            onClick={onCreatePlaylistClick}
-            style={styles.addPlaylistBtn}
-            title="Create Playlist"
-          >
-            <Plus size={16} />
-          </button>
+          <div style={{ display: 'flex', gap: '0.25rem' }}>
+            <button
+              type="button"
+              id="sidebar-import-playlist-btn"
+              onClick={onImportPlaylistClick}
+              style={styles.addPlaylistBtn}
+              title="Import Playlist"
+            >
+              <Download size={16} />
+            </button>
+            <button
+              type="button"
+              id="sidebar-create-playlist-btn"
+              onClick={onCreatePlaylistClick}
+              style={styles.addPlaylistBtn}
+              title="Create Playlist"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
         </div>
         <div style={styles.playlistScroll}>
           {playlists.length === 0 ? (
