@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Play, Heart, PlusSquare, Clock, X, Disc } from 'lucide-react';
 import { formatTime } from './AudioPlayer';
 
@@ -14,16 +14,15 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
   // New Song Form State
   const [artists, setArtists] = useState([]);
   const [albums, setAlbums] = useState([]);
-  const [newSong, setNewSong] = useState({
-    title: '',
-    artistId: '',
-    albumId: '',
-    duration: '',
-    audioUrl: '',
-    genre: '',
-  });
+  const [uploadQueue, setUploadQueue] = useState([]);
   const [formError, setFormError] = useState('');
   const [formLoading, setFormLoading] = useState(false);
+  const fileInputRef = useRef(null);
+
+  // Global settings helper state
+  const [globalArtistId, setGlobalArtistId] = useState('');
+  const [globalAlbumId, setGlobalAlbumId] = useState('');
+  const [globalGenre, setGlobalGenre] = useState('');
 
   const fetchSongs = async (searchTerm = '') => {
     try {
@@ -47,10 +46,8 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
     fetchSongs(search);
   }, [search, token]);
 
-  // Load artists and albums when opening add modal
-  const handleOpenAddModal = async () => {
-    setShowAddModal(true);
-    setFormError('');
+  // Load artists and albums
+  const loadMetadataOptions = async () => {
     try {
       const resArtists = await fetch('http://localhost:5000/api/artists');
       const dataArtists = await resArtists.json();
@@ -60,55 +57,164 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
       const dataAlbums = await resAlbums.json();
       setAlbums(dataAlbums);
     } catch (err) {
-      console.error('Error loading list of relational entities:', err);
+      console.error('Error loading artists and albums:', err);
     }
+  };
+
+  const handleOpenAddModal = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileChange = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    let selectedFiles = files;
+    if (files.length > 10) {
+      alert('Maximum of 10 songs can be uploaded at a time. Only the first 10 files have been selected.');
+      selectedFiles = files.slice(0, 10);
+    }
+
+    // Reset file input so same file selection triggers change again
+    e.target.value = '';
+
+    setFormError('');
+    setGlobalArtistId('');
+    setGlobalAlbumId('');
+    setGlobalGenre('');
+    await loadMetadataOptions();
+
+    const newItems = selectedFiles.map(file => {
+      const baseName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
+      const formattedTitle = baseName.replace(/[_-]+/g, ' ').trim();
+      return {
+        id: Math.random().toString(36).substring(2, 9),
+        file,
+        title: formattedTitle,
+        artistId: '',
+        albumId: '',
+        genre: 'Unknown',
+        duration: 0,
+        uploadStatus: 'pending', // 'pending', 'uploading', 'success', 'error'
+        error: null
+      };
+    });
+
+    setUploadQueue(newItems);
+    setShowAddModal(true);
+
+    // Estimate durations in client
+    newItems.forEach(item => {
+      try {
+        const objectUrl = URL.createObjectURL(item.file);
+        const audio = new Audio(objectUrl);
+        audio.addEventListener('loadedmetadata', () => {
+          const duration = Math.round(audio.duration || 0);
+          setUploadQueue(prev => prev.map(p => p.id === item.id ? { ...p, duration } : p));
+          URL.revokeObjectURL(objectUrl);
+        });
+        audio.addEventListener('error', () => {
+          URL.revokeObjectURL(objectUrl);
+        });
+      } catch (err) {
+        console.warn('Could not read duration for file:', item.file.name, err);
+      }
+    });
+  };
+
+  const handleRemoveFromQueue = (id) => {
+    setUploadQueue(prev => prev.filter(item => item.id !== id));
+  };
+
+  const handleUpdateQueueItem = (id, fields) => {
+    setUploadQueue(prev => prev.map(item => item.id === id ? { ...item, ...fields } : item));
+  };
+
+  const applyGlobalArtist = (artistId) => {
+    setGlobalArtistId(artistId);
+    setGlobalAlbumId(''); // Clear global album since artist changed
+    setUploadQueue(prev => prev.map(item => ({ ...item, artistId, albumId: '' })));
+  };
+
+  const applyGlobalAlbum = (albumId) => {
+    setGlobalAlbumId(albumId);
+    setUploadQueue(prev => prev.map(item => ({ ...item, albumId })));
+  };
+
+  const applyGlobalGenre = (genre) => {
+    setGlobalGenre(genre);
+    setUploadQueue(prev => prev.map(item => ({ ...item, genre })));
   };
 
   const handleAddSongSubmit = async (e) => {
     e.preventDefault();
-    const { title, artistId, audioUrl } = newSong;
+    if (uploadQueue.length === 0) {
+      setFormError('Please select at least one song to upload.');
+      return;
+    }
 
-    if (!title || !artistId || !audioUrl) {
-      setFormError('Title, Artist, and Audio URL are required');
+    // Verify all have title and artist
+    const invalidItem = uploadQueue.find(item => !item.title.trim() || !item.artistId);
+    if (invalidItem) {
+      setFormError(`Please ensure all songs have a Title and Artist. Check song: "${invalidItem.file.name}"`);
       return;
     }
 
     setFormError('');
     setFormLoading(true);
 
-    try {
-      const response = await fetch('http://localhost:5000/api/songs', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify(newSong),
-      });
+    // Process uploads sequentially to allow UI to show status of each file
+    for (let i = 0; i < uploadQueue.length; i++) {
+      const item = uploadQueue[i];
+      if (item.uploadStatus === 'success') continue;
 
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to add song');
+      setUploadQueue(prev => prev.map(p => p.id === item.id ? { ...p, uploadStatus: 'uploading' } : p));
+
+      try {
+        const formData = new FormData();
+        formData.append('file', item.file);
+        formData.append('title', item.title);
+        formData.append('artistId', item.artistId);
+        formData.append('albumId', item.albumId || '');
+        formData.append('duration', item.duration || 180);
+        formData.append('genre', item.genre || 'Unknown');
+
+        const response = await fetch('http://localhost:5000/api/songs/upload', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          body: formData
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to upload song');
+        }
+
+        setUploadQueue(prev => prev.map(p => p.id === item.id ? { ...p, uploadStatus: 'success' } : p));
+      } catch (err) {
+        console.error('Error uploading item:', item.title, err);
+        setUploadQueue(prev => prev.map(p => p.id === item.id ? { ...p, uploadStatus: 'error', error: err.message } : p));
       }
-
-      // Close modal and reset form
-      setShowAddModal(false);
-      setNewSong({
-        title: '',
-        artistId: '',
-        albumId: '',
-        duration: '',
-        audioUrl: '',
-        genre: '',
-      });
-
-      // Refetch songs
-      fetchSongs(search);
-    } catch (err) {
-      setFormError(err.message);
-    } finally {
-      setFormLoading(false);
     }
+
+    // Check if there are any remaining errors
+    setUploadQueue(currentQueue => {
+      const errors = currentQueue.filter(item => item.uploadStatus === 'error');
+      if (errors.length === 0) {
+        // If all uploaded successfully, close modal
+        setShowAddModal(false);
+      } else {
+        setFormError(`${errors.length} song(s) failed to upload. Please review details and try again.`);
+      }
+      return currentQueue;
+    });
+
+    fetchSongs(search);
+    setFormLoading(false);
   };
 
   const handleHeartClick = async (e, songId) => {
@@ -285,13 +391,14 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
       {/* Add Custom Song Modal */}
       {showAddModal && (
         <div className="modal-overlay">
-          <div className="modal-content glass-panel" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content glass-panel" style={{ maxWidth: '800px', width: '90%', maxHeight: '85vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: '1.5rem' }} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
-              <h2 style={styles.modalTitle}>Add Custom Song</h2>
+              <h2 style={styles.modalTitle}>Upload Songs ({uploadQueue.length})</h2>
               <button
                 type="button"
                 onClick={() => setShowAddModal(false)}
                 style={styles.closeModalBtn}
+                disabled={formLoading}
               >
                 <X size={20} />
               </button>
@@ -299,96 +406,142 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
 
             {formError && <div style={styles.modalError}>{formError}</div>}
 
-            <form onSubmit={handleAddSongSubmit} style={styles.modalForm}>
-              <div className="form-group">
-                <label className="form-label" htmlFor="song-title">Song Title</label>
-                <input
-                  id="song-title"
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. Dreamy Raindrops"
-                  value={newSong.title}
-                  onChange={(e) => setNewSong({ ...newSong, title: e.target.value })}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label" htmlFor="song-artist">Artist</label>
+            {/* Global Settings Panel */}
+            <div style={styles.globalSettingsPanel}>
+              <span style={styles.globalLabel}>Apply to All:</span>
+              <div style={styles.globalInputsRow}>
                 <select
-                  id="song-artist"
                   className="form-input"
-                  style={styles.selectInput}
-                  value={newSong.artistId}
-                  onChange={(e) => setNewSong({ ...newSong, artistId: e.target.value })}
-                  required
+                  style={styles.selectInputTiny}
+                  value={globalArtistId}
+                  onChange={(e) => applyGlobalArtist(e.target.value)}
+                  disabled={formLoading}
                 >
-                  <option value="">-- Select Artist --</option>
+                  <option value="">-- Artist --</option>
                   {artists.map((artist) => (
                     <option key={artist.id} value={artist.id}>
-                      {artist.name} ({artist.genre})
+                      {artist.name}
                     </option>
                   ))}
                 </select>
-              </div>
 
-              <div className="form-group">
-                <label className="form-label" htmlFor="song-album">Album (Optional)</label>
                 <select
-                  id="song-album"
                   className="form-input"
-                  style={styles.selectInput}
-                  value={newSong.albumId}
-                  onChange={(e) => setNewSong({ ...newSong, albumId: e.target.value })}
+                  style={styles.selectInputTiny}
+                  value={globalAlbumId}
+                  onChange={(e) => applyGlobalAlbum(e.target.value)}
+                  disabled={formLoading || !globalArtistId}
                 >
-                  <option value="">-- No Album (Single) --</option>
+                  <option value="">-- Album --</option>
                   {albums
-                    .filter((a) => !newSong.artistId || a.artistId === parseInt(newSong.artistId, 10))
+                    .filter((a) => !globalArtistId || a.artistId === parseInt(globalArtistId, 10))
                     .map((album) => (
                       <option key={album.id} value={album.id}>
-                        {album.title} ({album.releaseYear})
+                        {album.title}
                       </option>
                     ))}
                 </select>
-              </div>
 
-              <div style={styles.formRow}>
-                <div className="form-group" style={{ flex: 1 }}>
-                  <label className="form-label" htmlFor="song-genre">Genre</label>
-                  <input
-                    id="song-genre"
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. Lofi Hip Hop"
-                    value={newSong.genre}
-                    onChange={(e) => setNewSong({ ...newSong, genre: e.target.value })}
-                  />
-                </div>
-                <div className="form-group" style={{ flex: 1 }}>
-                  <label className="form-label" htmlFor="song-duration">Duration (seconds)</label>
-                  <input
-                    id="song-duration"
-                    type="number"
-                    min="1"
-                    className="form-input"
-                    placeholder="e.g. 180"
-                    value={newSong.duration}
-                    onChange={(e) => setNewSong({ ...newSong, duration: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label" htmlFor="song-url">Audio File URL</label>
                 <input
-                  id="song-url"
-                  type="url"
+                  type="text"
                   className="form-input"
-                  placeholder="https://example.com/audio.mp3"
-                  value={newSong.audioUrl}
-                  onChange={(e) => setNewSong({ ...newSong, audioUrl: e.target.value })}
-                  required
+                  style={styles.inputTiny}
+                  placeholder="Genre (e.g. Pop)"
+                  value={globalGenre}
+                  onChange={(e) => applyGlobalGenre(e.target.value)}
+                  disabled={formLoading}
                 />
+              </div>
+            </div>
+
+            {/* Scrollable File List */}
+            <form onSubmit={handleAddSongSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+              <div style={styles.queueContainer}>
+                {uploadQueue.map((item) => (
+                  <div key={item.id} style={styles.queueItemCard}>
+                    <div style={styles.queueItemHeader}>
+                      <span style={styles.filenameLabel} title={item.file.name}>{item.file.name}</span>
+                      <span style={styles.durationBadge}>
+                        {item.duration > 0 ? formatTime(item.duration) : 'Loading...'}
+                      </span>
+                      
+                      {item.uploadStatus === 'uploading' && <span style={styles.statusUploading}>Uploading...</span>}
+                      {item.uploadStatus === 'success' && <span style={styles.statusSuccess}>✓ Success</span>}
+                      {item.uploadStatus === 'error' && <span style={styles.statusError} title={item.error}>✗ Failed</span>}
+                      
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveFromQueue(item.id)}
+                        style={styles.removeBtn}
+                        disabled={formLoading || item.uploadStatus === 'uploading' || item.uploadStatus === 'success'}
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+
+                    <div style={styles.queueItemFields}>
+                      <div style={{ flex: 2, minWidth: '150px' }}>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="Song Title"
+                          value={item.title}
+                          onChange={(e) => handleUpdateQueueItem(item.id, { title: e.target.value })}
+                          required
+                          disabled={formLoading || item.uploadStatus === 'success'}
+                        />
+                      </div>
+
+                      <div style={{ flex: 1.5, minWidth: '130px' }}>
+                        <select
+                          className="form-input"
+                          style={styles.selectInput}
+                          value={item.artistId}
+                          onChange={(e) => handleUpdateQueueItem(item.id, { artistId: e.target.value, albumId: '' })}
+                          required
+                          disabled={formLoading || item.uploadStatus === 'success'}
+                        >
+                          <option value="">-- Artist --</option>
+                          {artists.map((artist) => (
+                            <option key={artist.id} value={artist.id}>
+                              {artist.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div style={{ flex: 1.5, minWidth: '130px' }}>
+                        <select
+                          className="form-input"
+                          style={styles.selectInput}
+                          value={item.albumId}
+                          onChange={(e) => handleUpdateQueueItem(item.id, { albumId: e.target.value })}
+                          disabled={formLoading || item.uploadStatus === 'success'}
+                        >
+                          <option value="">-- Album --</option>
+                          {albums
+                            .filter((a) => !item.artistId || a.artistId === parseInt(item.artistId, 10))
+                            .map((album) => (
+                              <option key={album.id} value={album.id}>
+                                {album.title}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+
+                      <div style={{ flex: 1.2, minWidth: '100px' }}>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="Genre"
+                          value={item.genre}
+                          onChange={(e) => handleUpdateQueueItem(item.id, { genre: e.target.value })}
+                          disabled={formLoading || item.uploadStatus === 'success'}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
 
               <div style={styles.modalActions}>
@@ -404,15 +557,25 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
                   type="submit"
                   id="submit-song-btn"
                   className="btn btn-primary"
-                  disabled={formLoading}
+                  disabled={formLoading || uploadQueue.length === 0}
                 >
-                  {formLoading ? 'Adding...' : 'Add Song'}
+                  {formLoading ? 'Uploading & Saving...' : 'Upload & Add to Catalog'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* Hidden input for selecting audio files */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        multiple
+        accept="audio/*"
+        style={{ display: 'none' }}
+      />
     </div>
   );
 };
@@ -605,6 +768,120 @@ const styles = {
     justifyContent: 'flex-end',
     gap: '1rem',
     marginTop: '1.5rem',
+  },
+  globalSettingsPanel: {
+    background: 'rgba(255, 255, 255, 0.03)',
+    border: '1px solid rgba(255, 255, 255, 0.05)',
+    padding: '0.75rem 1rem',
+    borderRadius: '8px',
+    marginBottom: '1rem',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '1rem',
+    flexWrap: 'wrap',
+  },
+  globalLabel: {
+    fontSize: '0.85rem',
+    fontWeight: '600',
+    color: 'var(--text-muted)',
+  },
+  globalInputsRow: {
+    display: 'flex',
+    gap: '0.75rem',
+    flex: 1,
+    flexWrap: 'wrap',
+  },
+  selectInputTiny: {
+    flex: 1,
+    minWidth: '110px',
+    fontSize: '0.8rem',
+    padding: '0.4rem 0.6rem',
+    background: '#080612',
+    color: 'var(--text-main)',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    borderRadius: '6px',
+  },
+  inputTiny: {
+    flex: 1,
+    minWidth: '110px',
+    fontSize: '0.8rem',
+    padding: '0.4rem 0.6rem',
+    background: 'transparent',
+    color: 'var(--text-main)',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    borderRadius: '6px',
+  },
+  queueContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.75rem',
+    flex: 1,
+    overflowY: 'auto',
+    paddingRight: '4px',
+    marginBottom: '1rem',
+  },
+  queueItemCard: {
+    background: 'rgba(255, 255, 255, 0.02)',
+    border: '1px solid rgba(255, 255, 255, 0.05)',
+    borderRadius: '10px',
+    padding: '0.75rem 1rem',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.5rem',
+  },
+  queueItemHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.75rem',
+  },
+  filenameLabel: {
+    fontSize: '0.8rem',
+    color: 'var(--text-muted)',
+    fontWeight: '500',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    flex: 1,
+  },
+  durationBadge: {
+    fontSize: '0.75rem',
+    color: 'var(--text-muted)',
+    background: 'rgba(255, 255, 255, 0.06)',
+    padding: '2px 6px',
+    borderRadius: '4px',
+  },
+  statusUploading: {
+    fontSize: '0.75rem',
+    color: 'var(--accent-light)',
+    fontWeight: '600',
+  },
+  statusSuccess: {
+    fontSize: '0.75rem',
+    color: '#10b981',
+    fontWeight: '600',
+  },
+  statusError: {
+    fontSize: '0.75rem',
+    color: '#ef4444',
+    fontWeight: '600',
+    cursor: 'help',
+  },
+  removeBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'var(--text-muted)',
+    cursor: 'pointer',
+    padding: '2px',
+    borderRadius: '4px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  queueItemFields: {
+    display: 'flex',
+    gap: '0.75rem',
+    flexWrap: 'wrap',
   },
 };
 

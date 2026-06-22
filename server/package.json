@@ -14,6 +14,7 @@
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "multer": "^2.2.0",
     "spotify-url-info": "^3.3.0",
     "sqlite3": "^5.1.7",
     "youtube-sr": "^4.3.12",

@@ -1,9 +1,27 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
+import multer from 'multer';
+import path from 'path';
 import { run, get, all } from '../db.js';
 import { authenticateToken, JWT_SECRET } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// Multer Storage Configuration
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 20 * 1024 * 1024 } // 20MB file limit
+});
 
 // Helper to optionally authenticate user for GET /api/songs to see liked status
 const optionalAuthenticate = (req, res, next) => {
@@ -88,6 +106,67 @@ router.get('/liked', authenticateToken, async (req, res) => {
   }
 });
 
+// Helper to extract YouTube video ID
+function getYoutubeId(url) {
+  if (!url) return null;
+  const regExp = /^.*(外界|youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  // Let's use a simpler and highly reliable regex for standard YouTube URLs
+  const match = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
+  return match ? match[1] : null;
+}
+
+// POST to upload a custom song file
+router.post('/upload', authenticateToken, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Audio file is required' });
+    }
+
+    const { title, artistId, albumId, duration, genre } = req.body;
+    
+    if (!title || !artistId) {
+      return res.status(400).json({ error: 'Title and artistId are required' });
+    }
+
+    const finalDuration = duration ? parseInt(duration, 10) : 180;
+    const audioUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+
+    // Verify artist exists
+    const artist = await get('SELECT id FROM artists WHERE id = ?', [artistId]);
+    if (!artist) {
+      return res.status(404).json({ error: 'Artist not found' });
+    }
+
+    // Insert into database
+    const result = await run(
+      `INSERT INTO songs (title, artistId, albumId, duration, audioUrl, genre, sourceType, externalId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        title,
+        parseInt(artistId, 10),
+        albumId && albumId !== 'null' && albumId !== '' ? parseInt(albumId, 10) : null,
+        finalDuration,
+        audioUrl,
+        genre || 'Unknown',
+        'local',
+        null
+      ]
+    );
+
+    const newSong = await get(`
+      SELECT s.*, a.name as artistName, al.title as albumTitle, al.coverUrl as coverUrl
+      FROM songs s
+      JOIN artists a ON s.artistId = a.id
+      LEFT JOIN albums al ON s.albumId = al.id
+      WHERE s.id = ?
+    `, [result.id]);
+
+    res.status(201).json(newSong);
+  } catch (error) {
+    console.error('Error uploading song:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // POST to add a new song
 router.post('/', authenticateToken, async (req, res) => {
   const { title, artistId, albumId, duration, audioUrl, genre } = req.body;
@@ -105,10 +184,32 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Artist not found' });
     }
 
+    const ytId = getYoutubeId(audioUrl);
+    const sourceType = ytId ? 'youtube' : 'local';
+    const externalId = ytId || null;
+
     const result = await run(
-      `INSERT INTO songs (title, artistId, albumId, duration, audioUrl, genre) VALUES (?, ?, ?, ?, ?, ?)`,
-      [title, artistId, albumId || null, finalDuration, audioUrl, genre || 'Unknown']
+      `INSERT INTO songs (title, artistId, albumId, duration, audioUrl, genre, sourceType, externalId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [title, artistId, albumId || null, finalDuration, audioUrl, genre || 'Unknown', sourceType, externalId]
     );
+
+    // If YouTube video and no custom album is selected, link to a dummy YouTube Single album with YouTube cover art
+    if (ytId && !albumId) {
+      const coverUrl = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
+      const albumTitle = 'YouTube Single';
+      let album = await get('SELECT id FROM albums WHERE artistId = ? AND title = ?', [artistId, albumTitle]);
+      let finalAlbumId;
+      if (!album) {
+        const albumResult = await run(
+          'INSERT INTO albums (title, artistId, releaseYear, coverUrl) VALUES (?, ?, ?, ?)',
+          [albumTitle, artistId, new Date().getFullYear(), coverUrl]
+        );
+        finalAlbumId = albumResult.id;
+      } else {
+        finalAlbumId = album.id;
+      }
+      await run('UPDATE songs SET albumId = ? WHERE id = ?', [finalAlbumId, result.id]);
+    }
 
     const newSong = await get(`
       SELECT s.*, a.name as artistName, al.title as albumTitle, al.coverUrl as coverUrl

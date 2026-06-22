@@ -44,6 +44,7 @@ const App = () => {
   // YouTube Iframe Player
   const ytPlayerRef = useRef(null);
   const [ytPlayerReady, setYtPlayerReady] = useState(false);
+  const lastLoadedVideoIdRef = useRef(null);
 
   // Fetch logged in user's profile on token change
   useEffect(() => {
@@ -110,6 +111,11 @@ const App = () => {
     localStorage.removeItem('melody_token');
     // Stop playing audio
     audioRef.current.pause();
+    if (ytPlayerReady && ytPlayerRef.current) {
+      try {
+        ytPlayerRef.current.pauseVideo();
+      } catch (err) {}
+    }
     setIsPlaying(false);
     setCurrentSong(null);
     setQueue([]);
@@ -125,27 +131,22 @@ const App = () => {
 
   // Load and initialize YouTube player iframe API
   useEffect(() => {
-    const hasScript = document.querySelector('script[src="https://www.youtube.com/iframe_api"]');
-    if (!hasScript) {
-      const tag = document.createElement('script');
-      tag.src = 'https://www.youtube.com/iframe_api';
-      const firstScriptTag = document.getElementsByTagName('script')[0];
-      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-    }
+    let playerCreated = false;
+    let pollInterval = null;
 
-    window.onYouTubeIframeAPIReady = () => {
-      createYTPlayer();
-    };
+    const createYTPlayer = () => {
+      if (playerCreated) return;
+      
+      if (!document.getElementById('youtube-iframe-player')) {
+        console.warn('youtube-iframe-player element not found in DOM.');
+        return;
+      }
 
-    if (window.YT && window.YT.Player) {
-      createYTPlayer();
-    }
-
-    function createYTPlayer() {
+      playerCreated = true;
       try {
         new window.YT.Player('youtube-iframe-player', {
-          height: '0',
-          width: '0',
+          height: '120',
+          width: '200',
           videoId: '',
           playerVars: {
             playsinline: 1,
@@ -169,8 +170,43 @@ const App = () => {
         });
       } catch (err) {
         console.error('Error creating YouTube player:', err);
+        playerCreated = false;
       }
+    };
+
+    const checkAndCreate = () => {
+      if (window.YT && window.YT.Player) {
+        createYTPlayer();
+        return true;
+      }
+      return false;
+    };
+
+    window.onYouTubeIframeAPIReady = () => {
+      createYTPlayer();
+    };
+
+    const hasScript = document.querySelector('script[src="https://www.youtube.com/iframe_api"]');
+    if (!hasScript) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
     }
+
+    if (!checkAndCreate()) {
+      pollInterval = setInterval(() => {
+        if (checkAndCreate()) {
+          clearInterval(pollInterval);
+        }
+      }, 100);
+    }
+
+    return () => {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
   }, []);
 
   // Audio HTML5 Event Listeners
@@ -208,55 +244,72 @@ const App = () => {
 
   // Sync playback for both players
   useEffect(() => {
-    if (currentSong) {
-      const isYt = currentSong.sourceType === 'youtube';
-      const audio = audioRef.current;
+    const audio = audioRef.current;
 
-      if (isYt) {
-        if (!audio.paused) {
-          audio.pause();
-        }
+    if (!currentSong) {
+      if (!audio.paused) {
+        audio.pause();
+      }
+      if (ytPlayerReady && ytPlayerRef.current) {
+        try {
+          ytPlayerRef.current.pauseVideo();
+        } catch (err) {}
+      }
+      return;
+    }
 
-        if (ytPlayerReady && ytPlayerRef.current) {
-          try {
-            const currentVideoId = ytPlayerRef.current.getVideoData?.()?.video_id;
-            if (currentVideoId !== currentSong.externalId) {
-              if (isPlaying) {
-                ytPlayerRef.current.loadVideoById(currentSong.externalId);
-              } else {
-                ytPlayerRef.current.cueVideoById(currentSong.externalId);
+    const isYt = currentSong.sourceType === 'youtube';
+
+    if (isYt) {
+      if (!audio.paused) {
+        audio.pause();
+      }
+
+      if (ytPlayerReady && ytPlayerRef.current) {
+        try {
+          if (lastLoadedVideoIdRef.current !== currentSong.externalId) {
+            lastLoadedVideoIdRef.current = currentSong.externalId;
+            if (isPlaying) {
+              ytPlayerRef.current.loadVideoById(currentSong.externalId);
+            } else {
+              ytPlayerRef.current.cueVideoById(currentSong.externalId);
+            }
+          } else {
+            const playerState = ytPlayerRef.current.getPlayerState?.();
+            if (isPlaying) {
+              if (playerState !== 1) { // 1 = PLAYING
+                ytPlayerRef.current.playVideo();
               }
             } else {
-              if (isPlaying) {
-                ytPlayerRef.current.playVideo();
-              } else {
+              if (playerState !== 2) { // 2 = PAUSED
                 ytPlayerRef.current.pauseVideo();
               }
             }
-          } catch (err) {
-            console.error('YouTube player playback control error:', err);
           }
+        } catch (err) {
+          console.error('YouTube player playback control error:', err);
         }
+      }
+    } else {
+      if (ytPlayerReady && ytPlayerRef.current) {
+        try {
+          ytPlayerRef.current.pauseVideo();
+        } catch (err) {}
+      }
+      lastLoadedVideoIdRef.current = null;
+
+      if (audio.src !== currentSong.audioUrl) {
+        audio.src = currentSong.audioUrl;
+        audio.load();
+      }
+
+      if (isPlaying) {
+        audio.play().catch(err => {
+          console.warn('Playback error, user interaction required:', err);
+          setIsPlaying(false);
+        });
       } else {
-        if (ytPlayerReady && ytPlayerRef.current) {
-          try {
-            ytPlayerRef.current.pauseVideo();
-          } catch (err) {}
-        }
-
-        if (audio.src !== currentSong.audioUrl) {
-          audio.src = currentSong.audioUrl;
-          audio.load();
-        }
-
-        if (isPlaying) {
-          audio.play().catch(err => {
-            console.warn('Playback error, user interaction required:', err);
-            setIsPlaying(false);
-          });
-        } else {
-          audio.pause();
-        }
+        audio.pause();
       }
     }
   }, [currentSong, isPlaying, ytPlayerReady]);
@@ -279,7 +332,10 @@ const App = () => {
         try {
           if (ytPlayerRef.current && typeof ytPlayerRef.current.getCurrentTime === 'function') {
             setCurrentTime(ytPlayerRef.current.getCurrentTime());
-            setDuration(ytPlayerRef.current.getDuration() || 0);
+            const ytDuration = ytPlayerRef.current.getDuration();
+            if (ytDuration > 0) {
+              setDuration(ytDuration);
+            }
           }
         } catch (err) {}
       }, 500);
@@ -657,10 +713,12 @@ const App = () => {
         />
       )}
 
-      {/* Hidden YouTube Iframe Player container */}
-      <div style={{ position: 'absolute', top: -9999, left: -9999, pointerEvents: 'none' }}>
-        <div id="youtube-iframe-player"></div>
-      </div>
+      {/* Hidden YouTube Iframe Player container (rendered within viewport with tiny opacity to pass browser play policies)
+          We use dangerouslySetInnerHTML to prevent React virtual DOM diffing from destroying/re-creating the YouTube iframe */}
+      <div 
+        style={{ position: 'fixed', bottom: 10, right: 10, width: '200px', height: '120px', zIndex: -10, opacity: 0.01, pointerEvents: 'none' }}
+        dangerouslySetInnerHTML={{ __html: '<div id="youtube-iframe-player"></div>' }}
+      />
     </div>
   );
 };
