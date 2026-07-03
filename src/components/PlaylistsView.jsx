@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Trash2, Music, Clock, Heart, Disc, ListMusic } from 'lucide-react';
+import { Play, Trash2, Music, Clock, Heart, Disc, ListMusic, CloudDownload, Loader2 } from 'lucide-react';
 import { formatTime } from './AudioPlayer';
 
 const PlaylistsView = ({
@@ -15,6 +15,7 @@ const PlaylistsView = ({
 }) => {
   const [playlist, setPlaylist] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [downloadingIds, setDownloadingIds] = useState([]);
 
   const fetchPlaylistDetails = async () => {
     setLoading(true);
@@ -77,6 +78,35 @@ const PlaylistsView = ({
   const handleDeleteClick = async () => {
     if (window.confirm(`Are you sure you want to delete the playlist "${playlist.name}"?`)) {
       await onDeletePlaylist(playlistId);
+    }
+  };
+
+  const handleDownloadSong = async (e, songId) => {
+    e.stopPropagation();
+    if (!token) return;
+
+    setDownloadingIds(prev => [...prev, songId]);
+    try {
+      const response = await fetch(`http://localhost:5000/api/songs/${songId}/download`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const updatedSong = await response.json();
+      if (!response.ok) throw new Error(updatedSong.error || 'Failed to download');
+
+      // Update local playlist state
+      setPlaylist(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          songs: prev.songs.map(s => s.id === songId ? updatedSong : s)
+        };
+      });
+    } catch (err) {
+      console.error(err);
+      alert(err.message || 'Error downloading song');
+    } finally {
+      setDownloadingIds(prev => prev.filter(id => id !== songId));
     }
   };
 
@@ -197,6 +227,24 @@ const PlaylistsView = ({
                     <td>{formatTime(song.duration)}</td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div style={styles.actionsCell}>
+                        {/* Download / Cache offline button */}
+                        {song.sourceType === 'youtube' && (
+                          <button
+                            type="button"
+                            id={`playlist-download-song-${song.id}`}
+                            onClick={(e) => handleDownloadSong(e, song.id)}
+                            style={styles.removeTrackBtn}
+                            disabled={downloadingIds.includes(song.id)}
+                            title="Download & Cache Offline"
+                          >
+                            {downloadingIds.includes(song.id) ? (
+                              <Loader2 size={16} className="spin-animation" />
+                            ) : (
+                              <CloudDownload size={16} />
+                            )}
+                          </button>
+                        )}
+
                         {/* Remove from Playlist Button */}
                         <button
                           type="button"
@@ -328,6 +376,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'flex-end',
+    gap: '0.5rem',
   },
   removeTrackBtn: {
     background: 'none',

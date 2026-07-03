@@ -4,6 +4,7 @@ import multer from 'multer';
 import path from 'path';
 import { run, get, all } from '../db.js';
 import { authenticateToken, JWT_SECRET } from '../middleware/auth.js';
+import { downloadYoutubeAudio, queueYoutubeDownload } from '../utils/youtubeDownloader.js';
 
 const router = express.Router();
 
@@ -266,6 +267,70 @@ router.post('/:id/play', async (req, res) => {
   } catch (error) {
     console.error('Error recording play count:', error);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST to download/cache all YouTube songs in background
+router.post('/download-all', authenticateToken, async (req, res) => {
+  try {
+    const songs = await all('SELECT id, externalId FROM songs WHERE sourceType = "youtube"');
+    let count = 0;
+    for (const song of songs) {
+      if (song.externalId) {
+        queueYoutubeDownload(song.id, song.externalId);
+        count++;
+      }
+    }
+    res.json({ success: true, queuedCount: count });
+  } catch (error) {
+    console.error('Error downloading all songs:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST to manually download/cache a specific YouTube song
+router.post('/:id/download', authenticateToken, async (req, res) => {
+  const songId = parseInt(req.params.id, 10);
+
+  try {
+    const song = await get('SELECT * FROM songs WHERE id = ?', [songId]);
+    if (!song) {
+      return res.status(404).json({ error: 'Song not found' });
+    }
+
+    if (song.sourceType !== 'youtube' || !song.externalId) {
+      // Already local or cannot download
+      const fullSong = await get(`
+        SELECT s.*, a.name as artistName, al.title as albumTitle, al.coverUrl as coverUrl
+        FROM songs s
+        JOIN artists a ON s.artistId = a.id
+        LEFT JOIN albums al ON s.albumId = al.id
+        WHERE s.id = ?
+      `, [songId]);
+      return res.json(fullSong);
+    }
+
+    // Trigger download synchronously for manual trigger so UI gets final url
+    const localUrl = await downloadYoutubeAudio(song.externalId);
+    
+    // Update DB
+    await run(
+      `UPDATE songs SET audioUrl = ?, sourceType = 'local' WHERE id = ?`,
+      [localUrl, songId]
+    );
+
+    const updatedSong = await get(`
+      SELECT s.*, a.name as artistName, al.title as albumTitle, al.coverUrl as coverUrl
+      FROM songs s
+      JOIN artists a ON s.artistId = a.id
+      LEFT JOIN albums al ON s.albumId = al.id
+      WHERE s.id = ?
+    `, [songId]);
+
+    res.json(updatedSong);
+  } catch (error) {
+    console.error('Error downloading song:', error);
+    res.status(500).json({ error: 'Failed to download YouTube audio' });
   }
 });
 

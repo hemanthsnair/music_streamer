@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Plus, Play, Heart, PlusSquare, Clock, X, Disc } from 'lucide-react';
+import { Search, Plus, Play, Heart, PlusSquare, Clock, X, Disc, CloudDownload, Loader2 } from 'lucide-react';
 import { formatTime } from './AudioPlayer';
 
 const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, playlists, onAddToPlaylist }) => {
   const [songs, setSongs] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [downloadingIds, setDownloadingIds] = useState([]);
   
   // Modals / Dropdowns State
   const [showAddModal, setShowAddModal] = useState(false);
@@ -226,6 +227,29 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
     );
   };
 
+  const handleDownloadSong = async (e, songId) => {
+    e.stopPropagation();
+    if (!token) return;
+
+    setDownloadingIds(prev => [...prev, songId]);
+    try {
+      const response = await fetch(`http://localhost:5000/api/songs/${songId}/download`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const updatedSong = await response.json();
+      if (!response.ok) throw new Error(updatedSong.error || 'Failed to download');
+
+      // Update local songs list state
+      setSongs(prevSongs => prevSongs.map(s => s.id === songId ? updatedSong : s));
+    } catch (err) {
+      console.error(err);
+      alert(err.message || 'Error downloading song');
+    } finally {
+      setDownloadingIds(prev => prev.filter(id => id !== songId));
+    }
+  };
+
   const togglePlaylistDropdown = (e, songId) => {
     e.stopPropagation();
     if (activePlaylistDropdown === songId) {
@@ -345,6 +369,24 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
                         >
                           <Heart size={16} fill={song.isLiked ? 'currentColor' : 'none'} />
                         </button>
+
+                        {/* Download / Cache offline button */}
+                        {song.sourceType === 'youtube' && (
+                          <button
+                            type="button"
+                            id={`song-download-btn-${song.id}`}
+                            onClick={(e) => handleDownloadSong(e, song.id)}
+                            style={styles.actionBtn}
+                            disabled={downloadingIds.includes(song.id)}
+                            title="Download & Cache Offline"
+                          >
+                            {downloadingIds.includes(song.id) ? (
+                              <Loader2 size={16} className="spin-animation" />
+                            ) : (
+                              <CloudDownload size={16} />
+                            )}
+                          </button>
+                        )}
 
                         {/* Add to Playlist Dropdown Trigger */}
                         <div style={styles.dropdownWrapper}>

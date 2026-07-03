@@ -3,6 +3,7 @@ import ytSearch from 'yt-search';
 import { YouTube } from 'youtube-sr';
 import { run, get, all } from '../db.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { queueYoutubeDownload } from '../utils/youtubeDownloader.js';
 
 const router = express.Router();
 
@@ -45,7 +46,7 @@ async function findOrCreateArtist(artistName) {
 
 // Helper to find or create song dynamically
 async function findOrCreateSong({ title, artistId, duration, externalId, coverUrl }) {
-  let song = await get('SELECT * FROM songs WHERE externalId = ? AND sourceType = "youtube"', [externalId]);
+  let song = await get('SELECT * FROM songs WHERE externalId = ?', [externalId]);
   if (!song) {
     const finalDuration = duration ? parseInt(duration, 10) : 180;
     const audioUrl = `https://www.youtube.com/watch?v=${externalId}`;
@@ -53,6 +54,9 @@ async function findOrCreateSong({ title, artistId, duration, externalId, coverUr
       'INSERT INTO songs (title, artistId, duration, audioUrl, genre, sourceType, externalId) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [title, artistId, finalDuration, audioUrl, 'Unknown', 'youtube', externalId]
     );
+    
+    // Queue background download
+    queueYoutubeDownload(result.id, externalId);
     
     // Check if we also need to store/link coverUrl as an album cover if needed. 
     // Since songs has an albumId, and the original frontend loads coverUrl from albums table, 
@@ -84,6 +88,8 @@ async function findOrCreateSong({ title, artistId, duration, externalId, coverUr
     }
 
     song = await get('SELECT * FROM songs WHERE id = ?', [result.id]);
+  } else if (song.sourceType === 'youtube') {
+    queueYoutubeDownload(song.id, externalId);
   }
   return song;
 }

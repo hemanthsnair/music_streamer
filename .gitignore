@@ -35,3 +35,7 @@ server/test_yt_search.js
 server/test_yt_search_find.js
 server/test_yt_search_playlist.js
 server/test_ytpl.js
+
+# Uploaded/cached files
+server/uploads/*
+!server/uploads/.gitkeep
