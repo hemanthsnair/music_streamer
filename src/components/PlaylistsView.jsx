@@ -23,7 +23,7 @@ const PlaylistsView = ({
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
       
       if (playlistId === 'liked') {
-        const response = await fetch('http://localhost:5000/api/songs/liked', { headers });
+        const response = await fetch('/api/songs/liked', { headers });
         const songs = await response.json();
         
         setPlaylist({
@@ -34,7 +34,7 @@ const PlaylistsView = ({
           isSystem: true,
         });
       } else {
-        const response = await fetch(`http://localhost:5000/api/playlists/${playlistId}`, { headers });
+        const response = await fetch(`/api/playlists/${playlistId}`, { headers });
         if (!response.ok) throw new Error('Playlist not found');
         const data = await response.json();
         setPlaylist(data);
@@ -87,7 +87,7 @@ const PlaylistsView = ({
 
     setDownloadingIds(prev => [...prev, songId]);
     try {
-      const response = await fetch(`http://localhost:5000/api/songs/${songId}/download`, {
+      const response = await fetch(`/api/songs/${songId}/download`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });

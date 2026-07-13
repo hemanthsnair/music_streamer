@@ -16,8 +16,8 @@ const ImportPlaylistModal = ({ token, onClose, onImportSuccess }) => {
     setError(null);
 
     const endpoint = platform === 'youtube'
-      ? 'http://localhost:5000/api/import/youtube-playlist'
-      : 'http://localhost:5000/api/import/spotify-playlist';
+      ? '/api/import/youtube-playlist'
+      : '/api/import/spotify-playlist';
 
     try {
       const response = await fetch(endpoint, {

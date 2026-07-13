@@ -3,7 +3,11 @@ import cors from 'cors';
 import morgan from 'morgan';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import db from './db.js'; // imports and starts database schema setup
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import authRoutes from './routes/auth.js';
 import songRoutes from './routes/songs.js';
 import artistRoutes from './routes/artists.js';
@@ -38,6 +42,20 @@ app.use('/api/import', importRoutes);
 app.get('/health', (req, res) => {
   res.json({ status: 'healthy', database: 'connected' });
 });
+
+// Serve static client assets in production
+const clientBuildDir = path.resolve(__dirname, '../dist');
+if (fs.existsSync(clientBuildDir)) {
+  console.log(`Serving static client files from: ${clientBuildDir}`);
+  app.use(express.static(clientBuildDir));
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api') && !req.path.startsWith('/uploads')) {
+      res.sendFile(path.join(clientBuildDir, 'index.html'));
+    } else {
+      res.status(404).json({ error: 'Not Found' });
+    }
+  });
+}
 
 // Error handling middleware
 app.use((err, req, res, next) => {

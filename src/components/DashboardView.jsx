@@ -12,10 +12,10 @@ const DashboardView = ({ username, token, onPlaySong, onNavigate, likedSongsCoun
         const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
 
         // Fetch all songs to extract stats and sorting
-        const responseSongs = await fetch('http://localhost:5000/api/songs', { headers });
+        const responseSongs = await fetch('/api/songs', { headers });
         const songs = await responseSongs.json();
 
-        const responseArtists = await fetch('http://localhost:5000/api/artists');
+        const responseArtists = await fetch('/api/artists');
         const artists = await responseArtists.json();
 
         setStats({

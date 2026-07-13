@@ -28,8 +28,8 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
   const fetchSongs = async (searchTerm = '') => {
     try {
       const url = searchTerm 
-        ? `http://localhost:5000/api/songs?search=${encodeURIComponent(searchTerm)}`
-        : 'http://localhost:5000/api/songs';
+        ? `/api/songs?search=${encodeURIComponent(searchTerm)}`
+        : '/api/songs';
       
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
       
@@ -50,11 +50,11 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
   // Load artists and albums
   const loadMetadataOptions = async () => {
     try {
-      const resArtists = await fetch('http://localhost:5000/api/artists');
+      const resArtists = await fetch('/api/artists');
       const dataArtists = await resArtists.json();
       setArtists(dataArtists);
 
-      const resAlbums = await fetch('http://localhost:5000/api/albums');
+      const resAlbums = await fetch('/api/albums');
       const dataAlbums = await resAlbums.json();
       setAlbums(dataAlbums);
     } catch (err) {
@@ -182,7 +182,7 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
         formData.append('duration', item.duration || 180);
         formData.append('genre', item.genre || 'Unknown');
 
-        const response = await fetch('http://localhost:5000/api/songs/upload', {
+        const response = await fetch('/api/songs/upload', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`
@@ -233,7 +233,7 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
 
     setDownloadingIds(prev => [...prev, songId]);
     try {
-      const response = await fetch(`http://localhost:5000/api/songs/${songId}/download`, {
+      const response = await fetch(`/api/songs/${songId}/download`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });

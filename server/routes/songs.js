@@ -130,7 +130,7 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req, res
     }
 
     const finalDuration = duration ? parseInt(duration, 10) : 180;
-    const audioUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    const audioUrl = `/uploads/${req.file.filename}`;
 
     // Verify artist exists
     const artist = await get('SELECT id FROM artists WHERE id = ?', [artistId]);

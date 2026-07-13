@@ -20,8 +20,7 @@ export async function downloadYoutubeAudio(videoId) {
   // If the file already exists, return the expected URL
   if (fs.existsSync(outputPath)) {
     console.log(`Audio file already cached: ${filename}`);
-    const port = process.env.PORT || 5000;
-    return `http://localhost:${port}/uploads/${filename}`;
+    return `/uploads/${filename}`;
   }
 
   // Ensure uploads directory exists
@@ -44,8 +43,7 @@ export async function downloadYoutubeAudio(videoId) {
   }
 
   console.log(`Successfully downloaded YouTube audio: ${filename} (${fs.statSync(outputPath).size} bytes)`);
-  const port = process.env.PORT || 5000;
-  return `http://localhost:${port}/uploads/${filename}`;
+  return `/uploads/${filename}`;
 }
 
 /**

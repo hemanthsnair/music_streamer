@@ -60,7 +60,7 @@ const App = () => {
         const headers = { 'Authorization': `Bearer ${token}` };
 
         // Verify token & profile
-        const resMe = await fetch('http://localhost:5000/api/auth/me', { headers });
+        const resMe = await fetch('/api/auth/me', { headers });
         if (!resMe.ok) {
           throw new Error('Session expired');
         }
@@ -68,12 +68,12 @@ const App = () => {
         setUser(dataMe.user);
 
         // Fetch user playlists
-        const resPlaylists = await fetch('http://localhost:5000/api/playlists', { headers });
+        const resPlaylists = await fetch('/api/playlists', { headers });
         const dataPlaylists = await resPlaylists.json();
         setPlaylists(dataPlaylists);
 
         // Fetch liked songs count
-        const resLiked = await fetch('http://localhost:5000/api/songs/liked', { headers });
+        const resLiked = await fetch('/api/songs/liked', { headers });
         const dataLiked = await resLiked.json();
         setLikedSongsCount(dataLiked.length);
       } catch (err) {
@@ -89,7 +89,7 @@ const App = () => {
   const fetchPlaylists = async () => {
     if (!token) return;
     try {
-      const resPlaylists = await fetch('http://localhost:5000/api/playlists', {
+      const resPlaylists = await fetch('/api/playlists', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const dataPlaylists = await resPlaylists.json();
@@ -347,7 +347,7 @@ const App = () => {
   const handlePlaySong = async (song, songList = []) => {
     if (song.id && !String(song.id).startsWith('temp-')) {
       // Record API play count asynchronously
-      fetch(`http://localhost:5000/api/songs/${song.id}/play`, { method: 'POST' }).catch(() => {});
+      fetch(`/api/songs/${song.id}/play`, { method: 'POST' }).catch(() => {});
     }
 
     setCurrentSong(song);
@@ -406,7 +406,7 @@ const App = () => {
   const handleLikeToggle = async (songId) => {
     if (!token) return;
     try {
-      const response = await fetch(`http://localhost:5000/api/songs/${songId}/like`, {
+      const response = await fetch(`/api/songs/${songId}/like`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -435,7 +435,7 @@ const App = () => {
 
     setPlaylistFormLoading(true);
     try {
-      const response = await fetch('http://localhost:5000/api/playlists', {
+      const response = await fetch('/api/playlists', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -462,7 +462,7 @@ const App = () => {
 
   const handleAddToPlaylist = async (playlistId, songId) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/playlists/${playlistId}/songs`, {
+      const response = await fetch(`/api/playlists/${playlistId}/songs`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -485,7 +485,7 @@ const App = () => {
 
   const handleRemoveSongFromPlaylist = async (playlistId, songId) => {
     try {
-      await fetch(`http://localhost:5000/api/playlists/${playlistId}/songs/${songId}`, {
+      await fetch(`/api/playlists/${playlistId}/songs/${songId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -497,7 +497,7 @@ const App = () => {
 
   const handleDeletePlaylist = async (playlistId) => {
     try {
-      await fetch(`http://localhost:5000/api/playlists/${playlistId}`, {
+      await fetch(`/api/playlists/${playlistId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });

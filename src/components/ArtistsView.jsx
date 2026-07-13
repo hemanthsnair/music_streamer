@@ -21,7 +21,7 @@ const ArtistsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle
 
   const fetchArtists = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/artists');
+      const response = await fetch('/api/artists');
       const data = await response.json();
       setArtists(data);
     } catch (err) {
@@ -34,7 +34,7 @@ const ArtistsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle
   const fetchArtistDetails = async (id) => {
     try {
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-      const response = await fetch(`http://localhost:5000/api/artists/${id}`, { headers });
+      const response = await fetch(`/api/artists/${id}`, { headers });
       const data = await response.json();
       setArtistDetails(data);
     } catch (err) {
@@ -63,7 +63,7 @@ const ArtistsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle
     setFormLoading(true);
 
     try {
-      const response = await fetch('http://localhost:5000/api/artists', {
+      const response = await fetch('/api/artists', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

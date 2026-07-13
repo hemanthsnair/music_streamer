@@ -13,7 +13,7 @@ const GlobalSearch = ({ token, currentSongId, isPlaying, onPlaySong, playlists, 
 
     setLoading(true);
     try {
-      const response = await fetch(`http://localhost:5000/api/import/search-youtube?q=${encodeURIComponent(query)}`, {
+      const response = await fetch(`/api/import/search-youtube?q=${encodeURIComponent(query)}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!response.ok) throw new Error('Failed to search');
@@ -30,7 +30,7 @@ const GlobalSearch = ({ token, currentSongId, isPlaying, onPlaySong, playlists, 
   const handleImportToCatalog = async (video) => {
     setImportingId(video.videoId);
     try {
-      const response = await fetch('http://localhost:5000/api/import/song', {
+      const response = await fetch('/api/import/song', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -158,7 +158,7 @@ const GlobalSearch = ({ token, currentSongId, isPlaying, onPlaySong, playlists, 
                           // To add to playlist, we first import it to get a valid DB song ID, then add it to the playlist!
                           setImportingId(video.videoId);
                           try {
-                            const res = await fetch('http://localhost:5000/api/import/song', {
+                            const res = await fetch('/api/import/song', {
                               method: 'POST',
                               headers: {
                                 'Content-Type': 'application/json',
