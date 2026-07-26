@@ -18,17 +18,22 @@ import importRoutes from './routes/import.js';
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Create uploads folder if not exists
-const uploadsDir = path.join(process.cwd(), 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+// Create uploads folder if not exists (skip on Vercel read-only filesystem)
+if (!process.env.VERCEL) {
+  const uploadsDir = path.join(process.cwd(), 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
 }
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
-app.use('/uploads', express.static(uploadsDir));
+if (!process.env.VERCEL) {
+  const uploadsDir = path.join(process.cwd(), 'uploads');
+  app.use('/uploads', express.static(uploadsDir));
+}
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -64,6 +69,10 @@ app.use((err, req, res, next) => {
 });
 
 // Start Server
-app.listen(PORT, () => {
-  console.log(`Music Library Server is running on port ${PORT}`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Music Library Server is running on port ${PORT}`);
+  });
+}
+
+export default app;

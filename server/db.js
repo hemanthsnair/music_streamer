@@ -1,22 +1,49 @@
-import sqlite3 from 'sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
+import { createClient } from '@libsql/client';
 
+const require = createRequire(import.meta.url);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const dbPath = path.resolve(__dirname, 'database.db');
 
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('Error opening database:', err);
-  } else {
-    console.log('Connected to the SQLite database at:', dbPath);
-    initializeSchema();
-  }
-});
+const isTurso = !!process.env.TURSO_DATABASE_URL;
+
+let db = null;
+let client = null;
+
+if (isTurso) {
+  client = createClient({
+    url: process.env.TURSO_DATABASE_URL,
+    authToken: process.env.TURSO_AUTH_TOKEN
+  });
+  console.log('Connected to Turso serverless SQLite database.');
+  initializeSchema();
+} else {
+  const sqlite3 = require('sqlite3');
+  const dbPath = path.resolve(__dirname, 'database.db');
+  db = new sqlite3.Database(dbPath, (err) => {
+    if (err) {
+      console.error('Error opening database:', err);
+    } else {
+      console.log('Connected to the SQLite database at:', dbPath);
+      initializeSchema();
+    }
+  });
+}
 
 // Helper wrappers to return Promises
 export const run = (sql, params = []) => {
+  if (isTurso) {
+    return client.execute({ sql, args: params }).then((rs) => {
+      let lastID = undefined;
+      if (rs.lastInsertRowid !== undefined) {
+        lastID = Number(rs.lastInsertRowid);
+      }
+      return { id: lastID, changes: rs.rowsAffected };
+    });
+  }
+
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
       if (err) reject(err);
@@ -26,6 +53,18 @@ export const run = (sql, params = []) => {
 };
 
 export const get = (sql, params = []) => {
+  if (isTurso) {
+    return client.execute({ sql, args: params }).then((rs) => {
+      if (rs.rows.length === 0) return undefined;
+      const row = rs.rows[0];
+      const obj = {};
+      for (const col of rs.columns) {
+        obj[col] = row[col];
+      }
+      return obj;
+    });
+  }
+
   return new Promise((resolve, reject) => {
     db.get(sql, params, (err, row) => {
       if (err) reject(err);
@@ -35,6 +74,18 @@ export const get = (sql, params = []) => {
 };
 
 export const all = (sql, params = []) => {
+  if (isTurso) {
+    return client.execute({ sql, args: params }).then((rs) => {
+      return rs.rows.map((row) => {
+        const obj = {};
+        for (const col of rs.columns) {
+          obj[col] = row[col];
+        }
+        return obj;
+      });
+    });
+  }
+
   return new Promise((resolve, reject) => {
     db.all(sql, params, (err, rows) => {
       if (err) reject(err);
@@ -44,6 +95,10 @@ export const all = (sql, params = []) => {
 };
 
 export const exec = (sql) => {
+  if (isTurso) {
+    return client.execute(sql).then(() => {});
+  }
+
   return new Promise((resolve, reject) => {
     db.exec(sql, (err) => {
       if (err) reject(err);

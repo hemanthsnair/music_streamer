@@ -298,8 +298,13 @@ const App = () => {
       }
       lastLoadedVideoIdRef.current = null;
 
-      if (audio.src !== currentSong.audioUrl) {
-        audio.src = currentSong.audioUrl;
+      const rawUrl = currentSong.audioUrl;
+      const audioUrl = rawUrl && rawUrl.startsWith('/') && !rawUrl.startsWith('//')
+        ? (import.meta.env.VITE_API_URL || '') + rawUrl
+        : rawUrl;
+
+      if (audio.src !== audioUrl) {
+        audio.src = audioUrl;
         audio.load();
       }
 
