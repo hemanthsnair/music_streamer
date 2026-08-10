@@ -32,6 +32,29 @@ app.use(express.json());
 app.use(morgan('dev'));
 if (!process.env.VERCEL) {
   const uploadsDir = path.join(process.cwd(), 'uploads');
+
+  // Custom middleware to handle missing YouTube downloads on-the-fly
+  app.get('/uploads/yt-:videoId.m4a', async (req, res, next) => {
+    const { videoId } = req.params;
+    const filename = `yt-${videoId}.m4a`;
+    const outputPath = path.join(uploadsDir, filename);
+
+    if (fs.existsSync(outputPath)) {
+      return next(); // file exists, let express.static serve it
+    }
+
+    try {
+      console.log(`Dynamic download triggered for missing YouTube video ID: ${videoId}`);
+      const { downloadYoutubeAudio } = await import('./utils/youtubeDownloader.js');
+      await downloadYoutubeAudio(videoId);
+      console.log(`Dynamic download completed for YouTube video ID: ${videoId}`);
+      res.sendFile(outputPath);
+    } catch (err) {
+      console.error(`Dynamic download failed for video ID ${videoId}:`, err);
+      res.status(500).json({ error: 'Failed to retrieve YouTube audio' });
+    }
+  });
+
   app.use('/uploads', express.static(uploadsDir));
 }
 
