@@ -331,6 +331,8 @@ async function seedDatabase() {
   } catch (error) {
     console.error('Error seeding database:', error);
   }
+}
+
 isTurso = !!process.env.TURSO_DATABASE_URL;
 
 if (isTurso) {
