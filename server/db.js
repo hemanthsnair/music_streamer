@@ -7,30 +7,9 @@ const require = createRequire(import.meta.url);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const isTurso = !!process.env.TURSO_DATABASE_URL;
-
 let db = null;
 let client = null;
-
-if (isTurso) {
-  client = createClient({
-    url: process.env.TURSO_DATABASE_URL,
-    authToken: process.env.TURSO_AUTH_TOKEN
-  });
-  console.log('Connected to Turso serverless SQLite database.');
-  initializeSchema();
-} else {
-  const sqlite3 = require('sqlite3');
-  const dbPath = path.resolve(__dirname, 'database.db');
-  db = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-      console.error('Error opening database:', err);
-    } else {
-      console.log('Connected to the SQLite database at:', dbPath);
-      initializeSchema();
-    }
-  });
-}
+let isTurso = false;
 
 // Helper wrappers to return Promises
 export const run = (sql, params = []) => {
@@ -352,6 +331,26 @@ async function seedDatabase() {
   } catch (error) {
     console.error('Error seeding database:', error);
   }
+isTurso = !!process.env.TURSO_DATABASE_URL;
+
+if (isTurso) {
+  client = createClient({
+    url: process.env.TURSO_DATABASE_URL,
+    authToken: process.env.TURSO_AUTH_TOKEN
+  });
+  console.log('Connected to Turso serverless SQLite database.');
+  initializeSchema();
+} else {
+  const sqlite3 = require('sqlite3');
+  const dbPath = path.resolve(__dirname, 'database.db');
+  db = new sqlite3.Database(dbPath, (err) => {
+    if (err) {
+      console.error('Error opening database:', err);
+    } else {
+      console.log('Connected to the SQLite database at:', dbPath);
+      initializeSchema();
+    }
+  });
 }
 
 export default db;
