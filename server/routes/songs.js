@@ -331,10 +331,52 @@ router.post('/:id/download', authenticateToken, async (req, res) => {
       WHERE s.id = ?
     `, [songId]);
 
+    res.json(updatedSong);
+  } catch (error) {
+    console.error('Error downloading song:', error);
+    res.status(500).json({ error: 'Failed to download YouTube audio' });
+  }
+});
+
+// DELETE /api/songs/:id - Delete a song from catalog
+router.delete('/:id', authenticateToken, async (req, res) => {
+  const songId = parseInt(req.params.id, 10);
+  if (isNaN(songId)) return res.status(400).json({ error: 'Invalid song ID' });
+
+  try {
+    const song = await get('SELECT * FROM songs WHERE id = ?', [songId]);
+    if (!song) {
+      return res.status(404).json({ error: 'Song not found' });
+    }
+
+    // Clean up relations
+    await run('DELETE FROM liked_songs WHERE songId = ?', [songId]);
+    await run('DELETE FROM playlist_songs WHERE songId = ?', [songId]);
+    
+    // Delete local file if present and stored in uploads
+    if (song.audioUrl && song.audioUrl.startsWith('/uploads/')) {
+      const filePath = path.join(process.cwd(), song.audioUrl);
+      if (fs.existsSync(filePath)) {
+        try { fs.unlinkSync(filePath); } catch (e) {}
+      }
+    }
+
+    // Delete song from songs table
+    await run('DELETE FROM songs WHERE id = ?', [songId]);
+
+    res.json({ success: true, message: 'Song deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting song:', error);
+    res.status(500).json({ error: 'Failed to delete song' });
+  }
+});
+
 // GET /api/songs/stream/:videoId - High reliability streaming proxy for YouTube audio
 router.get('/stream/:videoId', async (req, res) => {
   const { videoId } = req.params;
-  if (!videoId) return res.status(400).json({ error: 'Video ID required' });
+  if (!videoId || videoId === 'undefined' || videoId === 'null') {
+    return res.status(400).json({ error: 'Valid Video ID required' });
+  }
 
   const uploadsDir = path.join(process.cwd(), 'uploads');
   const cachedFile = path.join(uploadsDir, `yt-${videoId}.m4a`);
@@ -344,40 +386,46 @@ router.get('/stream/:videoId', async (req, res) => {
     return res.sendFile(cachedFile);
   }
 
-  // 2. Stream directly from YouTube
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
   console.log(`Streaming YouTube audio on-the-fly for video ID: ${videoId}`);
 
+  // 2. Try ytdl-core info resolution to get direct stream URL
   try {
-    res.setHeader('Content-Type', 'audio/webm');
-    res.setHeader('Accept-Ranges', 'bytes');
-    
-    // Attempt ytdl-core audio stream
+    const info = await ytdl.getInfo(videoUrl);
+    const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
+    if (audioFormats && audioFormats.length > 0) {
+      const bestFormat = audioFormats[0];
+      if (bestFormat.url) {
+        return res.redirect(bestFormat.url);
+      }
+    }
+  } catch (ytdlErr) {
+    console.warn(`ytdl-core info lookup failed for video ${videoId}: ${ytdlErr.message}, trying play-dl stream...`);
+  }
+
+  // 3. Fallback: play-dl stream
+  try {
+    const pdStream = await play.stream(videoUrl, { quality: 2 });
+    if (pdStream && pdStream.stream) {
+      res.setHeader('Content-Type', pdStream.type || 'audio/webm');
+      res.setHeader('Accept-Ranges', 'bytes');
+      return pdStream.stream.pipe(res);
+    }
+  } catch (pdErr) {
+    console.error(`play-dl stream failed for video ${videoId}:`, pdErr.message);
+  }
+
+  // 4. Final attempt: ytdl audioonly pipe
+  try {
     const audioStream = ytdl(videoUrl, {
       filter: 'audioonly',
       highWaterMark: 1 << 25,
       quality: 'highestaudio'
     });
-
-    audioStream.pipe(res);
-
-    audioStream.on('error', async (err) => {
-      console.warn(`ytdl-core stream notice for video ${videoId}: ${err.message}, attempting play-dl...`);
-      try {
-        const pdStream = await play.stream(videoUrl, { quality: 2 });
-        if (!res.headersSent) {
-          res.setHeader('Content-Type', pdStream.type || 'audio/webm');
-        }
-        pdStream.stream.pipe(res);
-      } catch (pdErr) {
-        console.error(`play-dl stream failed for video ${videoId}:`, pdErr.message);
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Could not stream YouTube audio' });
-        }
-      }
-    });
+    res.setHeader('Content-Type', 'audio/webm');
+    return audioStream.pipe(res);
   } catch (err) {
-    console.error(`Error initializing stream for video ${videoId}:`, err);
+    console.error(`Final stream attempt failed for video ${videoId}:`, err);
     if (!res.headersSent) {
       res.status(500).json({ error: 'Failed to stream audio' });
     }

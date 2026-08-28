@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Plus, Play, Heart, PlusSquare, Clock, X, Disc, CloudDownload, Loader2 } from 'lucide-react';
+import { Search, Plus, Play, Heart, PlusSquare, Clock, X, Disc, CloudDownload, Loader2, Trash2 } from 'lucide-react';
 import { formatTime } from './AudioPlayer';
 
 const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, playlists, onAddToPlaylist }) => {
@@ -250,6 +250,27 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
     }
   };
 
+  const handleDeleteSong = async (e, songId, title) => {
+    e.stopPropagation();
+    if (!token) return;
+    if (!window.confirm(`Are you sure you want to delete "${title}" from the catalog?`)) return;
+
+    try {
+      const response = await fetch(`/api/songs/${songId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to delete song');
+      }
+      setSongs(prev => prev.filter(s => s.id !== songId));
+    } catch (err) {
+      console.error(err);
+      alert(err.message || 'Error deleting song');
+    }
+  };
+
   const togglePlaylistDropdown = (e, songId) => {
     e.stopPropagation();
     if (activePlaylistDropdown === songId) {
@@ -318,7 +339,7 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
                 <th>Album</th>
                 <th>Genre</th>
                 <th style={{ width: '100px' }}><Clock size={16} /></th>
-                <th style={{ width: '120px', textAlign: 'right' }}>Actions</th>
+                <th style={{ width: '150px', textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -420,6 +441,17 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
                             </div>
                           )}
                         </div>
+
+                        {/* Delete Song Button */}
+                        <button
+                          type="button"
+                          id={`song-delete-btn-${song.id}`}
+                          onClick={(e) => handleDeleteSong(e, song.id, song.title)}
+                          style={{ ...styles.actionBtn, color: 'var(--accent-pink)' }}
+                          title="Delete Song"
+                        >
+                          <Trash2 size={16} />
+                        </button>
                       </div>
                     </td>
                   </tr>

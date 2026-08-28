@@ -10,6 +10,13 @@ import GlobalSearch from './components/GlobalSearch';
 import ImportPlaylistModal from './components/ImportPlaylistModal';
 import { X } from 'lucide-react';
 
+const getYoutubeId = (url) => {
+  if (!url) return null;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) ? match[2] : null;
+};
+
 const App = () => {
   // 1. Auth State
   const [token, setToken] = useState(localStorage.getItem('melody_token') || null);
@@ -270,7 +277,7 @@ const App = () => {
     };
   }, [queue, queueIndex, currentSong]);
 
-  // Sync playback for both players
+  // Sync playback for global HTML5 audio player
   useEffect(() => {
     const audio = audioRef.current;
 
@@ -278,74 +285,35 @@ const App = () => {
       if (!audio.paused) {
         audio.pause();
       }
-      if (ytPlayerReady && ytPlayerRef.current) {
-        try {
-          ytPlayerRef.current.pauseVideo();
-        } catch (err) {}
-      }
       return;
     }
 
-    const isYt = currentSong.sourceType === 'youtube';
-
-    if (isYt) {
-      if (!audio.paused) {
-        audio.pause();
-      }
-
-      if (ytPlayerReady && ytPlayerRef.current) {
-        try {
-          if (lastLoadedVideoIdRef.current !== currentSong.externalId) {
-            lastLoadedVideoIdRef.current = currentSong.externalId;
-            if (isPlaying) {
-              ytPlayerRef.current.loadVideoById(currentSong.externalId);
-            } else {
-              ytPlayerRef.current.cueVideoById(currentSong.externalId);
-            }
-          } else {
-            const playerState = ytPlayerRef.current.getPlayerState?.();
-            if (isPlaying) {
-              if (playerState !== 1) { // 1 = PLAYING
-                ytPlayerRef.current.playVideo();
-              }
-            } else {
-              if (playerState !== 2) { // 2 = PAUSED
-                ytPlayerRef.current.pauseVideo();
-              }
-            }
-          }
-        } catch (err) {
-          console.error('YouTube player playback control error:', err);
-        }
-      }
-    } else {
-      if (ytPlayerReady && ytPlayerRef.current) {
-        try {
-          ytPlayerRef.current.pauseVideo();
-        } catch (err) {}
-      }
-      lastLoadedVideoIdRef.current = null;
-
-      const rawUrl = currentSong.audioUrl;
-      const audioUrl = rawUrl && rawUrl.startsWith('/') && !rawUrl.startsWith('//')
-        ? (import.meta.env.VITE_API_URL || '') + rawUrl
-        : rawUrl;
-
-      if (audio.src !== audioUrl) {
-        audio.src = audioUrl;
-        audio.load();
-      }
-
-      if (isPlaying) {
-        audio.play().catch(err => {
-          console.warn('Playback error, user interaction required:', err);
-          setIsPlaying(false);
-        });
-      } else {
-        audio.pause();
+    let targetUrl = currentSong.audioUrl;
+    const extId = currentSong.externalId || (currentSong.audioUrl ? getYoutubeId(currentSong.audioUrl) : null);
+    
+    if (currentSong.sourceType === 'youtube' || extId) {
+      if (extId) {
+        targetUrl = `/api/songs/stream/${extId}`;
       }
     }
-  }, [currentSong, isPlaying, ytPlayerReady]);
+
+    const audioUrl = targetUrl && targetUrl.startsWith('/') && !targetUrl.startsWith('//')
+      ? (import.meta.env.VITE_API_URL || '') + targetUrl
+      : targetUrl;
+
+    if (audio.src !== audioUrl && audio.src !== window.location.origin + audioUrl) {
+      audio.src = audioUrl;
+      audio.load();
+    }
+
+    if (isPlaying) {
+      audio.play().catch(err => {
+        console.warn('Playback notice, user interaction may be required:', err);
+      });
+    } else {
+      audio.pause();
+    }
+  }, [currentSong, isPlaying]);
 
   // Sync volume for both players
   useEffect(() => {
