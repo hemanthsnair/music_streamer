@@ -74,10 +74,10 @@ export function queueYoutubeDownload(songId, videoId) {
       // 2. Perform the download
       const localUrl = await downloadYoutubeAudio(videoId);
 
-      // 3. Update the song row in the database
+      // 3. Update the song row in the database while maintaining sourceType = 'youtube'
       await run(
         `UPDATE songs 
-         SET audioUrl = ?, sourceType = 'local' 
+         SET audioUrl = ?, sourceType = 'youtube' 
          WHERE id = ?`,
         [localUrl, songId]
       );

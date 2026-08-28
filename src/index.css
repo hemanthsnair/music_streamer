@@ -310,3 +310,108 @@ h1, h2, h3, h4, h5, h6 {
   0% { height: 20%; }
   100% { height: 100%; }
 }
+
+/* Responsive Breakpoints & Mobile Optimization */
+@media (max-width: 900px) {
+  .player-volume-section {
+    display: none !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-container {
+    flex-direction: column;
+  }
+
+  .sidebar-container {
+    position: fixed;
+    top: 0;
+    left: -280px;
+    width: 260px;
+    height: 100vh !important;
+    z-index: 1000;
+    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.6);
+  }
+
+  .sidebar-container.mobile-open {
+    left: 0;
+  }
+
+  .mobile-sidebar-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    z-index: 999;
+  }
+
+  .mobile-hamburger-btn {
+    display: flex !important;
+  }
+
+  .main-content {
+    padding: 1rem;
+    height: calc(100vh - 80px);
+    margin-bottom: 80px;
+  }
+
+  .audio-player-container {
+    height: 80px !important;
+    padding: 0 0.75rem !important;
+  }
+
+  .player-song-details {
+    max-width: 140px;
+  }
+
+  .player-song-details .meta {
+    max-width: 80px;
+  }
+
+  .player-song-details .title, 
+  .player-song-details .artist {
+    font-size: 0.75rem !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .player-controls-section {
+    flex: 1;
+    max-width: none !important;
+  }
+
+  .songs-table th:nth-child(4),
+  .songs-table td:nth-child(4),
+  .songs-table th:nth-child(5),
+  .songs-table td:nth-child(5) {
+    display: none;
+  }
+
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)) !important;
+    gap: 1rem !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .songs-table th:nth-child(1),
+  .songs-table td:nth-child(1),
+  .songs-table th:nth-child(6),
+  .songs-table td:nth-child(6) {
+    display: none;
+  }
+
+  .main-content {
+    padding: 0.75rem;
+  }
+
+  .modal-content {
+    padding: 1rem !important;
+    width: 95% !important;
+  }
+}

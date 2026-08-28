@@ -31,15 +31,22 @@ const App = () => {
   // 4. Personal Stats
   const [likedSongsCount, setLikedSongsCount] = useState(0);
 
-  // 5. Modals
+  // 5. Mobile Drawer State
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // 6. Modals
   const [showCreatePlaylistModal, setShowCreatePlaylistModal] = useState(false);
   const [showImportPlaylistModal, setShowImportPlaylistModal] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [newPlaylistDesc, setNewPlaylistDesc] = useState('');
   const [playlistFormLoading, setPlaylistFormLoading] = useState(false);
 
-  // Audio HTML5 Ref
+  // Audio HTML5 Ref & Current Song Ref
   const audioRef = useRef(new Audio());
+  const currentSongRef = useRef(null);
+  useEffect(() => {
+    currentSongRef.current = currentSong;
+  }, [currentSong]);
 
   // YouTube Iframe Player
   const ytPlayerRef = useRef(null);
@@ -165,6 +172,15 @@ const App = () => {
               if (event.data === 0) { // ENDED
                 handleNextTrack();
               }
+            },
+            onError: (event) => {
+              console.warn('YouTube Iframe Player error code:', event.data);
+              if (currentSongRef.current?.externalId) {
+                const streamUrl = `/api/songs/stream/${currentSongRef.current.externalId}`;
+                console.log('Falling back to audio stream proxy:', streamUrl);
+                audioRef.current.src = streamUrl;
+                audioRef.current.play().catch(e => console.error('Stream fallback play error:', e));
+              }
             }
           }
         });
@@ -226,19 +242,31 @@ const App = () => {
     };
 
     const onEnded = () => {
-      if (currentSong?.sourceType !== 'youtube') {
-        handleNextTrack();
+      handleNextTrack();
+    };
+
+    const onError = () => {
+      if (currentSong?.externalId) {
+        console.warn('HTML5 Audio error, attempting stream proxy fallback for video:', currentSong.externalId);
+        const fallbackStream = `/api/songs/stream/${currentSong.externalId}`;
+        if (!audio.src.includes(fallbackStream)) {
+          audio.src = fallbackStream;
+          audio.load();
+          audio.play().catch(e => console.error('Fallback playback error:', e));
+        }
       }
     };
 
     audio.addEventListener('timeupdate', onTimeUpdate);
     audio.addEventListener('loadedmetadata', onLoadedMetadata);
     audio.addEventListener('ended', onEnded);
+    audio.addEventListener('error', onError);
 
     return () => {
       audio.removeEventListener('timeupdate', onTimeUpdate);
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
       audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('error', onError);
     };
   }, [queue, queueIndex, currentSong]);
 
@@ -612,12 +640,23 @@ const App = () => {
       {/* Sidebar Navigation */}
       <Sidebar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={(tab) => {
+          setActiveTab(tab);
+          setMobileMenuOpen(false);
+        }}
         playlists={playlists}
         user={user}
         onLogout={handleLogout}
-        onCreatePlaylistClick={() => setShowCreatePlaylistModal(true)}
-        onImportPlaylistClick={() => setShowImportPlaylistModal(true)}
+        onCreatePlaylistClick={() => {
+          setShowCreatePlaylistModal(true);
+          setMobileMenuOpen(false);
+        }}
+        onImportPlaylistClick={() => {
+          setShowImportPlaylistModal(true);
+          setMobileMenuOpen(false);
+        }}
+        mobileMenuOpen={mobileMenuOpen}
+        setMobileMenuOpen={setMobileMenuOpen}
       />
 
       {/* Main content body */}
@@ -638,6 +677,7 @@ const App = () => {
         onSeek={handleSeek}
         onVolumeChange={setVolume}
         onLikeToggle={handleLikeToggle}
+        onToggleMobileMenu={() => setMobileMenuOpen(prev => !prev)}
       />
 
       {/* Create Playlist Modal overlay */}
@@ -718,10 +758,9 @@ const App = () => {
         />
       )}
 
-      {/* Hidden YouTube Iframe Player container (rendered within viewport with tiny opacity to pass browser play policies)
-          We use dangerouslySetInnerHTML to prevent React virtual DOM diffing from destroying/re-creating the YouTube iframe */}
+      {/* YouTube Iframe Player container (rendered within viewport with tiny opacity to pass browser play policies) */}
       <div 
-        style={{ position: 'fixed', bottom: 10, right: 10, width: '200px', height: '120px', zIndex: -10, opacity: 0.01, pointerEvents: 'none' }}
+        style={{ position: 'fixed', bottom: 10, right: 10, width: '1px', height: '1px', zIndex: 1, opacity: 0.05, pointerEvents: 'none', overflow: 'hidden' }}
         dangerouslySetInnerHTML={{ __html: '<div id="youtube-iframe-player"></div>' }}
       />
     </div>

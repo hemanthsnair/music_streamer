@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Heart, Music } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Heart, Music, Menu } from 'lucide-react';
 
 const formatTime = (time) => {
   if (isNaN(time)) return '0:00';
@@ -20,11 +20,23 @@ const AudioPlayer = ({
   onSeek,
   onVolumeChange,
   onLikeToggle,
+  onToggleMobileMenu,
 }) => {
   if (!currentSong) {
     return (
-      <div style={styles.container}>
+      <div className="audio-player-container" style={styles.container}>
         <div style={styles.noTrack}>
+          {onToggleMobileMenu && (
+            <button
+              type="button"
+              className="mobile-hamburger-btn"
+              onClick={onToggleMobileMenu}
+              style={styles.hamburgerBtn}
+              title="Toggle Menu"
+            >
+              <Menu size={20} />
+            </button>
+          )}
           <Music size={20} color="var(--text-muted)" />
           <span>No song selected. Select a song to start listening.</span>
         </div>
@@ -47,9 +59,22 @@ const AudioPlayer = ({
   };
 
   return (
-    <div style={styles.container} id="global-audio-player">
+    <div className="audio-player-container" style={styles.container} id="global-audio-player">
+      {/* Mobile Hamburger toggle */}
+      {onToggleMobileMenu && (
+        <button
+          type="button"
+          className="mobile-hamburger-btn"
+          onClick={onToggleMobileMenu}
+          style={styles.hamburgerBtn}
+          title="Toggle Navigation Menu"
+        >
+          <Menu size={20} />
+        </button>
+      )}
+
       {/* Left: Song Details */}
-      <div style={styles.songDetails}>
+      <div className="player-song-details" style={styles.songDetails}>
         <img
           src={currentSong.coverUrl || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=100&q=80'}
           alt={currentSong.title}
@@ -82,7 +107,7 @@ const AudioPlayer = ({
       </div>
 
       {/* Center: Controls & Slider */}
-      <div style={styles.controlsSection}>
+      <div className="player-controls-section" style={styles.controlsSection}>
         <div style={styles.buttons}>
           <button type="button" id="player-prev-btn" onClick={onPrevious} style={styles.controlBtn} title="Previous">
             <SkipBack size={20} fill="currentColor" />
@@ -123,7 +148,7 @@ const AudioPlayer = ({
       </div>
 
       {/* Right: Volume Controls */}
-      <div style={styles.volumeSection}>
+      <div className="player-volume-section" style={styles.volumeSection}>
         <button type="button" id="player-mute-btn" onClick={toggleMute} style={styles.volumeBtn}>
           {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
         </button>
@@ -158,6 +183,17 @@ const styles = {
     padding: '0 2rem',
     zIndex: 100,
     boxShadow: '0 -8px 32px 0 rgba(0, 0, 0, 0.4)',
+  },
+  hamburgerBtn: {
+    background: 'none',
+    border: 'none',
+    color: '#fff',
+    cursor: 'pointer',
+    padding: '6px',
+    display: 'none', // Shown on mobile via CSS
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: '0.5rem',
   },
   noTrack: {
     width: '100%',

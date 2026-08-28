@@ -49,7 +49,7 @@ async function findOrCreateSong({ title, artistId, duration, externalId, coverUr
   let song = await get('SELECT * FROM songs WHERE externalId = ?', [externalId]);
   if (!song) {
     const finalDuration = duration ? parseInt(duration, 10) : 180;
-    const audioUrl = `https://www.youtube.com/watch?v=${externalId}`;
+    const audioUrl = `/api/songs/stream/${externalId}`;
     const result = await run(
       'INSERT INTO songs (title, artistId, duration, audioUrl, genre, sourceType, externalId) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [title, artistId, finalDuration, audioUrl, 'Unknown', 'youtube', externalId]

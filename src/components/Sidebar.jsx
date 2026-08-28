@@ -1,7 +1,6 @@
-import React from 'react';
-import { LayoutDashboard, Music, Users, ListMusic, LogOut, Plus, Disc, Search, Download } from 'lucide-react';
+import { LayoutDashboard, Music, Users, ListMusic, LogOut, Plus, Disc, Search, Download, X } from 'lucide-react';
 
-const Sidebar = ({ activeTab, setActiveTab, playlists, user, onLogout, onCreatePlaylistClick, onImportPlaylistClick }) => {
+const Sidebar = ({ activeTab, setActiveTab, playlists, user, onLogout, onCreatePlaylistClick, onImportPlaylistClick, mobileMenuOpen, setMobileMenuOpen }) => {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'songs', label: 'Songs', icon: Music },
@@ -10,12 +9,28 @@ const Sidebar = ({ activeTab, setActiveTab, playlists, user, onLogout, onCreateP
   ];
 
   return (
-    <div style={styles.sidebar}>
-      {/* Brand Header */}
-      <div style={styles.brand}>
-        <Disc size={28} className="pulse-glowing" color="#a78bfa" style={styles.brandIcon} />
-        <h2 style={styles.brandText}>MelodyStream</h2>
-      </div>
+    <>
+      {mobileMenuOpen && (
+        <div className="mobile-sidebar-backdrop" onClick={() => setMobileMenuOpen && setMobileMenuOpen(false)} />
+      )}
+      <div className={`sidebar-container ${mobileMenuOpen ? 'mobile-open' : ''}`} style={styles.sidebar}>
+        {/* Brand Header */}
+        <div style={styles.brand}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <Disc size={28} className="pulse-glowing" color="#a78bfa" style={styles.brandIcon} />
+            <h2 style={styles.brandText}>MelodyStream</h2>
+          </div>
+          {setMobileMenuOpen && (
+            <button
+              type="button"
+              className="mobile-close-sidebar-btn"
+              onClick={() => setMobileMenuOpen(false)}
+              style={styles.closeMobileBtn}
+            >
+              <X size={22} color="var(--text-muted)" />
+            </button>
+          )}
+        </div>
 
       {/* Main Menu */}
       <nav style={styles.navSection}>
@@ -120,6 +135,7 @@ const Sidebar = ({ activeTab, setActiveTab, playlists, user, onLogout, onCreateP
         </button>
       </div>
     </div>
+    </>
   );
 };
 
@@ -137,10 +153,20 @@ const styles = {
   brand: {
     display: 'flex',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: '0.75rem',
     padding: '0.5rem 0.5rem 1.5rem 0.5rem',
     borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
     marginBottom: '1.5rem',
+  },
+  closeMobileBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    padding: '4px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   brandIcon: {
     animation: 'spin 10s linear infinite',

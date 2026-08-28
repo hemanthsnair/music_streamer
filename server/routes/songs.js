@@ -2,6 +2,9 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import path from 'path';
+import fs from 'fs';
+import ytdl from '@distube/ytdl-core';
+import play from 'play-dl';
 import { run, get, all } from '../db.js';
 import { authenticateToken, JWT_SECRET } from '../middleware/auth.js';
 import { downloadYoutubeAudio, queueYoutubeDownload } from '../utils/youtubeDownloader.js';
@@ -188,10 +191,11 @@ router.post('/', authenticateToken, async (req, res) => {
     const ytId = getYoutubeId(audioUrl);
     const sourceType = ytId ? 'youtube' : 'local';
     const externalId = ytId || null;
+    const finalAudioUrl = ytId ? `/api/songs/stream/${ytId}` : audioUrl;
 
     const result = await run(
       `INSERT INTO songs (title, artistId, albumId, duration, audioUrl, genre, sourceType, externalId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [title, artistId, albumId || null, finalDuration, audioUrl, genre || 'Unknown', sourceType, externalId]
+      [title, artistId, albumId || null, finalDuration, finalAudioUrl, genre || 'Unknown', sourceType, externalId]
     );
 
     // If YouTube video and no custom album is selected, link to a dummy YouTube Single album with YouTube cover art
@@ -327,10 +331,56 @@ router.post('/:id/download', authenticateToken, async (req, res) => {
       WHERE s.id = ?
     `, [songId]);
 
-    res.json(updatedSong);
-  } catch (error) {
-    console.error('Error downloading song:', error);
-    res.status(500).json({ error: 'Failed to download YouTube audio' });
+// GET /api/songs/stream/:videoId - High reliability streaming proxy for YouTube audio
+router.get('/stream/:videoId', async (req, res) => {
+  const { videoId } = req.params;
+  if (!videoId) return res.status(400).json({ error: 'Video ID required' });
+
+  const uploadsDir = path.join(process.cwd(), 'uploads');
+  const cachedFile = path.join(uploadsDir, `yt-${videoId}.m4a`);
+
+  // 1. If cached audio file exists on disk, serve directly
+  if (fs.existsSync(cachedFile)) {
+    return res.sendFile(cachedFile);
+  }
+
+  // 2. Stream directly from YouTube
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  console.log(`Streaming YouTube audio on-the-fly for video ID: ${videoId}`);
+
+  try {
+    res.setHeader('Content-Type', 'audio/webm');
+    res.setHeader('Accept-Ranges', 'bytes');
+    
+    // Attempt ytdl-core audio stream
+    const audioStream = ytdl(videoUrl, {
+      filter: 'audioonly',
+      highWaterMark: 1 << 25,
+      quality: 'highestaudio'
+    });
+
+    audioStream.pipe(res);
+
+    audioStream.on('error', async (err) => {
+      console.warn(`ytdl-core stream notice for video ${videoId}: ${err.message}, attempting play-dl...`);
+      try {
+        const pdStream = await play.stream(videoUrl, { quality: 2 });
+        if (!res.headersSent) {
+          res.setHeader('Content-Type', pdStream.type || 'audio/webm');
+        }
+        pdStream.stream.pipe(res);
+      } catch (pdErr) {
+        console.error(`play-dl stream failed for video ${videoId}:`, pdErr.message);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Could not stream YouTube audio' });
+        }
+      }
+    });
+  } catch (err) {
+    console.error(`Error initializing stream for video ${videoId}:`, err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to stream audio' });
+    }
   }
 });
 
