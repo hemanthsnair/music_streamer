@@ -3,8 +3,10 @@ import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { Readable } from 'stream';
 import ytdl from '@distube/ytdl-core';
 import play from 'play-dl';
+import youtubedl from 'youtube-dl-exec';
 import { run, get, all } from '../db.js';
 import { authenticateToken, JWT_SECRET } from '../middleware/auth.js';
 import { downloadYoutubeAudio, queueYoutubeDownload } from '../utils/youtubeDownloader.js';
@@ -386,47 +388,46 @@ router.get('/stream/:videoId', async (req, res) => {
     return res.sendFile(cachedFile);
   }
 
-  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
   console.log(`Streaming YouTube audio on-the-fly for video ID: ${videoId}`);
 
-  // Set initial streaming headers
-  res.setHeader('Content-Type', 'audio/webm');
-  res.setHeader('Accept-Ranges', 'bytes');
-
-  // 2. Try play-dl stream pipe
+  // 2. Download audio on-demand via youtube-dl-exec (yt-dlp) and serve
   try {
-    const pdStream = await play.stream(videoUrl, { quality: 2 });
-    if (pdStream && pdStream.stream) {
-      if (pdStream.type) {
-        res.setHeader('Content-Type', pdStream.type);
-      }
-      return pdStream.stream.pipe(res);
+    const fileUrl = await downloadYoutubeAudio(videoId);
+    const downloadedPath = path.join(process.cwd(), fileUrl);
+    if (fs.existsSync(downloadedPath)) {
+      return res.sendFile(downloadedPath);
     }
-  } catch (pdErr) {
-    console.warn(`play-dl stream notice for video ${videoId}: ${pdErr.message}, attempting ytdl-core...`);
+  } catch (dlErr) {
+    console.warn(`downloadYoutubeAudio failed for ${videoId}: ${dlErr.message}, attempting direct streaming...`);
   }
 
-  // 3. Fallback: ytdl-core audio stream pipe
+  // 3. Fallback: direct streaming via youtube-dl-exec JSON URL
   try {
-    const audioStream = ytdl(videoUrl, {
-      filter: 'audioonly',
-      highWaterMark: 1 << 25,
-      quality: 'highestaudio'
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const output = await youtubedl(videoUrl, {
+      dumpSingleJson: true,
+      noWarnings: true,
+      noCallHome: true,
+      noCheckCertificates: true
     });
 
-    audioStream.on('error', (err) => {
-      console.error(`ytdl-core pipe error for ${videoId}:`, err.message);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Audio stream failed' });
+    const audioFormats = output.formats?.filter(f => f.vcodec === 'none' && f.acodec !== 'none') || [];
+    if (audioFormats.length > 0) {
+      const bestAudio = audioFormats[0];
+      const audioRes = await fetch(bestAudio.url);
+      if (audioRes.ok && audioRes.body) {
+        res.setHeader('Content-Type', 'audio/m4a');
+        res.setHeader('Accept-Ranges', 'bytes');
+        const readable = Readable.fromWeb(audioRes.body);
+        return readable.pipe(res);
       }
-    });
-
-    return audioStream.pipe(res);
-  } catch (err) {
-    console.error(`Final stream attempt failed for video ${videoId}:`, err);
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'Failed to stream audio' });
     }
+  } catch (streamErr) {
+    console.error(`Direct stream fallback failed for video ${videoId}:`, streamErr.message);
+  }
+
+  if (!res.headersSent) {
+    res.status(500).json({ error: 'Failed to retrieve YouTube audio stream' });
   }
 });
 

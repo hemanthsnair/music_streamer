@@ -247,13 +247,11 @@ const App = () => {
     const audio = audioRef.current;
 
     const onTimeUpdate = () => {
-      if (currentSong?.sourceType !== 'youtube') {
-        setCurrentTime(audio.currentTime);
-      }
+      setCurrentTime(audio.currentTime);
     };
 
     const onLoadedMetadata = () => {
-      if (currentSong?.sourceType !== 'youtube') {
+      if (audio.duration && !isNaN(audio.duration)) {
         setDuration(audio.duration);
       }
     };
