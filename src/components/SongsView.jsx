@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Play, Heart, PlusSquare, Clock, X, Disc, CloudDownload, Loader2, Trash2 } from 'lucide-react';
 import { formatTime } from './AudioPlayer';
 
-const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, playlists, onAddToPlaylist }) => {
+const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, playlists, onAddToPlaylist, showToast }) => {
   const [songs, setSongs] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -10,6 +10,7 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
   
   // Modals / Dropdowns State
   const [showAddModal, setShowAddModal] = useState(false);
+  const [songToDelete, setSongToDelete] = useState(null);
   const [activePlaylistDropdown, setActivePlaylistDropdown] = useState(null);
   
   // New Song Form State
@@ -250,13 +251,16 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
     }
   };
 
-  const handleDeleteSong = async (e, songId, title) => {
+  const handleOpenDeleteModal = (e, song) => {
     e.stopPropagation();
-    if (!token) return;
-    if (!window.confirm(`Are you sure you want to delete "${title}" from the catalog?`)) return;
+    setSongToDelete(song);
+  };
+
+  const handleConfirmDeleteSong = async () => {
+    if (!songToDelete || !token) return;
 
     try {
-      const response = await fetch(`/api/songs/${songId}`, {
+      const response = await fetch(`/api/songs/${songToDelete.id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -264,10 +268,17 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
         const data = await response.json();
         throw new Error(data.error || 'Failed to delete song');
       }
-      setSongs(prev => prev.filter(s => s.id !== songId));
+      setSongs(prev => prev.filter(s => s.id !== songToDelete.id));
+      if (showToast) {
+        showToast(`"${songToDelete.title}" removed from catalog`, 'success');
+      }
     } catch (err) {
       console.error(err);
-      alert(err.message || 'Error deleting song');
+      if (showToast) {
+        showToast(err.message || 'Error deleting song', 'error');
+      }
+    } finally {
+      setSongToDelete(null);
     }
   };
 
@@ -446,7 +457,7 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
                         <button
                           type="button"
                           id={`song-delete-btn-${song.id}`}
-                          onClick={(e) => handleDeleteSong(e, song.id, song.title)}
+                          onClick={(e) => handleOpenDeleteModal(e, song)}
                           style={{ ...styles.actionBtn, color: 'var(--accent-pink)' }}
                           title="Delete Song"
                         >
@@ -461,6 +472,65 @@ const SongsView = ({ token, currentSongId, isPlaying, onPlaySong, onLikeToggle, 
           </table>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {songToDelete && (
+        <div className="modal-overlay" onClick={() => setSongToDelete(null)}>
+          <div
+            className="modal-content glass-panel"
+            style={{ maxWidth: '440px', width: '90%', padding: '1.75rem', borderRadius: '16px' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ background: 'rgba(239, 68, 68, 0.15)', padding: '10px', borderRadius: '12px', display: 'flex' }}>
+                  <Trash2 size={22} color="#f87171" />
+                </div>
+                <h3 style={{ fontSize: '1.25rem', color: '#fff', margin: 0 }}>Delete Song</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSongToDelete(null)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '0.95rem', color: 'var(--text-secondary)', marginBottom: '1.5rem', lineHeight: '1.5' }}>
+              Are you sure you want to delete <strong style={{ color: '#fff' }}>"{songToDelete.title}"</strong> from the global music catalog?
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setSongToDelete(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                id="confirm-delete-song-btn"
+                className="btn"
+                style={{
+                  background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '0.6rem 1.25rem',
+                  borderRadius: '10px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 14px rgba(239, 68, 68, 0.4)'
+                }}
+                onClick={handleConfirmDeleteSong}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Custom Song Modal */}
       {showAddModal && (

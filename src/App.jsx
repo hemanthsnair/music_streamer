@@ -8,7 +8,7 @@ import ArtistsView from './components/ArtistsView';
 import PlaylistsView from './components/PlaylistsView';
 import GlobalSearch from './components/GlobalSearch';
 import ImportPlaylistModal from './components/ImportPlaylistModal';
-import { X } from 'lucide-react';
+import { X, CheckCircle2, AlertCircle, Info } from 'lucide-react';
 
 const getYoutubeId = (url) => {
   if (!url) return null;
@@ -22,11 +22,21 @@ const App = () => {
   const [token, setToken] = useState(localStorage.getItem('melody_token') || null);
   const [user, setUser] = useState(null);
   
-  // 2. Navigation State
+  // 2. Toast Notification State
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(prev => (prev?.message === message ? null : prev));
+    }, 3500);
+  };
+  
+  // 3. Navigation State
   const [activeTab, setActiveTab] = useState('dashboard');
   const [playlists, setPlaylists] = useState([]);
   
-  // 3. Audio Player State
+  // 4. Audio Player State
   const [currentSong, setCurrentSong] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -35,13 +45,13 @@ const App = () => {
   const [queue, setQueue] = useState([]);
   const [queueIndex, setQueueIndex] = useState(-1);
 
-  // 4. Personal Stats
+  // 5. Personal Stats
   const [likedSongsCount, setLikedSongsCount] = useState(0);
 
-  // 5. Mobile Drawer State
+  // 6. Mobile Drawer State
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // 6. Modals
+  // 7. Modals
   const [showCreatePlaylistModal, setShowCreatePlaylistModal] = useState(false);
   const [showImportPlaylistModal, setShowImportPlaylistModal] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
@@ -473,14 +483,14 @@ const App = () => {
       });
       const data = await response.json();
       if (!response.ok) {
-        alert(data.error || 'Failed to add song to playlist');
+        showToast(data.error || 'Failed to add song to playlist', 'error');
       } else {
-        alert('Song added to playlist successfully!');
-        // Refresh playlist menu stats
+        showToast('Song added to playlist successfully!', 'success');
         fetchPlaylists();
       }
     } catch (err) {
       console.error('Add to playlist error:', err);
+      showToast('Error adding song to playlist', 'error');
     }
   };
 
@@ -490,7 +500,8 @@ const App = () => {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      fetchPlaylists(); // update count stats
+      showToast('Song removed from playlist', 'info');
+      fetchPlaylists();
     } catch (err) {
       console.error('Error removing song from playlist:', err);
     }
@@ -502,6 +513,7 @@ const App = () => {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
+      showToast('Playlist deleted successfully', 'success');
       setActiveTab('dashboard');
       fetchPlaylists();
     } catch (err) {
@@ -520,6 +532,7 @@ const App = () => {
           onNavigate={(tab) => setActiveTab(tab)}
           likedSongsCount={likedSongsCount}
           playlistsCount={playlists.length}
+          showToast={showToast}
         />
       );
     }
@@ -534,6 +547,7 @@ const App = () => {
           onLikeToggle={handleLikeToggle}
           playlists={playlists}
           onAddToPlaylist={handleAddToPlaylist}
+          showToast={showToast}
         />
       );
     }
@@ -546,6 +560,7 @@ const App = () => {
           isPlaying={isPlaying}
           onPlaySong={handlePlaySong}
           onLikeToggle={handleLikeToggle}
+          showToast={showToast}
         />
       );
     }
@@ -561,6 +576,7 @@ const App = () => {
           onLikeToggle={handleLikeToggle}
           onRemoveSongFromPlaylist={handleRemoveSongFromPlaylist}
           onDeletePlaylist={handleDeletePlaylist}
+          showToast={showToast}
         />
       );
     }
@@ -574,6 +590,7 @@ const App = () => {
           onPlaySong={handlePlaySong}
           playlists={playlists}
           onAddToPlaylist={handleAddToPlaylist}
+          showToast={showToast}
         />
       );
     }
@@ -724,6 +741,29 @@ const App = () => {
             setActiveTab(`playlist-${playlistId}`);
           }}
         />
+      )}
+
+      {/* Toast Notification Container */}
+      {toast && (
+        <div className={`toast-notification toast-${toast.type}`}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {toast.type === 'error' ? (
+              <AlertCircle size={20} color="#f87171" />
+            ) : toast.type === 'info' ? (
+              <Info size={20} color="#a78bfa" />
+            ) : (
+              <CheckCircle2 size={20} color="#34d399" />
+            )}
+            <span>{toast.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex', padding: 0 }}
+          >
+            <X size={16} />
+          </button>
+        </div>
       )}
 
       {/* YouTube Iframe Player container (rendered within viewport with tiny opacity to pass browser play policies) */}

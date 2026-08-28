@@ -389,40 +389,38 @@ router.get('/stream/:videoId', async (req, res) => {
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
   console.log(`Streaming YouTube audio on-the-fly for video ID: ${videoId}`);
 
-  // 2. Try ytdl-core info resolution to get direct stream URL
-  try {
-    const info = await ytdl.getInfo(videoUrl);
-    const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
-    if (audioFormats && audioFormats.length > 0) {
-      const bestFormat = audioFormats[0];
-      if (bestFormat.url) {
-        return res.redirect(bestFormat.url);
-      }
-    }
-  } catch (ytdlErr) {
-    console.warn(`ytdl-core info lookup failed for video ${videoId}: ${ytdlErr.message}, trying play-dl stream...`);
-  }
+  // Set initial streaming headers
+  res.setHeader('Content-Type', 'audio/webm');
+  res.setHeader('Accept-Ranges', 'bytes');
 
-  // 3. Fallback: play-dl stream
+  // 2. Try play-dl stream pipe
   try {
     const pdStream = await play.stream(videoUrl, { quality: 2 });
     if (pdStream && pdStream.stream) {
-      res.setHeader('Content-Type', pdStream.type || 'audio/webm');
-      res.setHeader('Accept-Ranges', 'bytes');
+      if (pdStream.type) {
+        res.setHeader('Content-Type', pdStream.type);
+      }
       return pdStream.stream.pipe(res);
     }
   } catch (pdErr) {
-    console.error(`play-dl stream failed for video ${videoId}:`, pdErr.message);
+    console.warn(`play-dl stream notice for video ${videoId}: ${pdErr.message}, attempting ytdl-core...`);
   }
 
-  // 4. Final attempt: ytdl audioonly pipe
+  // 3. Fallback: ytdl-core audio stream pipe
   try {
     const audioStream = ytdl(videoUrl, {
       filter: 'audioonly',
       highWaterMark: 1 << 25,
       quality: 'highestaudio'
     });
-    res.setHeader('Content-Type', 'audio/webm');
+
+    audioStream.on('error', (err) => {
+      console.error(`ytdl-core pipe error for ${videoId}:`, err.message);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Audio stream failed' });
+      }
+    });
+
     return audioStream.pipe(res);
   } catch (err) {
     console.error(`Final stream attempt failed for video ${videoId}:`, err);
