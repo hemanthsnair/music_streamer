@@ -405,7 +405,7 @@ router.get('/stream/:videoId', async (req, res) => {
     const directUrl = await youtubedl(videoUrl, {
       getUrl: true,
       format: 'ba/best',
-      extractorArgs: 'youtube:player_client=android,web',
+      extractorArgs: 'youtube:player_client=android',
       noWarnings: true,
       noCheckCertificates: true
     });
@@ -438,7 +438,7 @@ router.get('/stream/:videoId', async (req, res) => {
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
     const output = await youtubedl(videoUrl, {
       dumpSingleJson: true,
-      extractorArgs: 'youtube:player_client=android,web',
+      extractorArgs: 'youtube:player_client=android',
       noWarnings: true,
       noCheckCertificates: true
     });

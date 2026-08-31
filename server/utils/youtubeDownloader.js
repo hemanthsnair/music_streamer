@@ -66,7 +66,7 @@ export async function downloadYoutubeAudio(videoId) {
   // Format ba/best with extractorArgs bypasses cloud datacenter bot checks
   await youtubedl(videoUrl, {
     format: 'ba/best',
-    extractorArgs: 'youtube:player_client=android,web',
+    extractorArgs: 'youtube:player_client=android',
     output: outputPath,
     noCheckCertificates: true,
     noWarnings: true,

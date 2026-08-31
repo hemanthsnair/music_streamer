@@ -145,7 +145,7 @@ router.post('/youtube-playlist', authenticateToken, async (req, res) => {
       const ytData = await youtubedl(fullUrl, {
         dumpSingleJson: true,
         flatPlaylist: true,
-        extractorArgs: 'youtube:player_client=android,web',
+        extractorArgs: 'youtube:player_client=android',
         noWarnings: true,
         noCheckCertificates: true
       });
