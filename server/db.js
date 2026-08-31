@@ -151,7 +151,7 @@ async function initializeSchema() {
       // column already exists
     }
 
-    // Repair existing songs in DB that are YouTube videos but were converted to local paths
+    // Repair existing songs in DB that are YouTube videos but were converted to raw YouTube URLs or local placeholders
     try {
       await run(`
         UPDATE songs 
@@ -159,7 +159,7 @@ async function initializeSchema() {
             audioUrl = '/api/songs/stream/' || externalId
         WHERE externalId IS NOT NULL 
           AND externalId != '' 
-          AND (sourceType = 'local' OR audioUrl LIKE '/uploads/yt-%' OR audioUrl LIKE 'https://www.youtube%')
+          AND (audioUrl LIKE 'https://www.youtube%' OR audioUrl IS NULL OR audioUrl = '')
       `);
       console.log('Database YouTube song records verified and repaired.');
     } catch (e) {

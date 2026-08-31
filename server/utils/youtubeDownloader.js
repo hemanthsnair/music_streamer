@@ -30,9 +30,9 @@ export async function downloadYoutubeAudio(videoId) {
 
   console.log(`Starting YouTube download for video ID: ${videoId}`);
   
-  // Format 140 is the native AAC audio stream (~128kbps) which doesn't require ffmpeg merging or transcoding.
+  // Format ba[ext=m4a]/140/ba/bestaudio/best uses native AAC m4a audio or best available audio stream.
   await youtubedl(videoUrl, {
-    format: '140',
+    format: 'ba[ext=m4a]/140/ba/bestaudio/best',
     output: outputPath,
     noCheckCertificates: true,
     noWarnings: true,

@@ -1,6 +1,7 @@
 import express from 'express';
 import ytSearch from 'yt-search';
 import { YouTube } from 'youtube-sr';
+import youtubedl from 'youtube-dl-exec';
 import { run, get, all } from '../db.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { queueYoutubeDownload } from '../utils/youtubeDownloader.js';
@@ -135,14 +136,53 @@ router.post('/youtube-playlist', authenticateToken, async (req, res) => {
     const playlistId = playlistIdMatch ? playlistIdMatch[1] : url;
 
     console.log(`Fetching YouTube playlist: ${playlistId}`);
-    const playlistDetails = await YouTube.getPlaylist(playlistId);
-    if (!playlistDetails) {
-      return res.status(404).json({ error: 'YouTube playlist not found or is private' });
+    let title = playlistName || '';
+    let videos = [];
+
+    // 1. Try fetching playlist details using youtube-dl (yt-dlp)
+    try {
+      const fullUrl = `https://www.youtube.com/playlist?list=${playlistId}`;
+      const ytData = await youtubedl(fullUrl, {
+        dumpSingleJson: true,
+        flatPlaylist: true,
+        noWarnings: true,
+        noCheckCertificates: true
+      });
+      if (ytData && ytData.entries && ytData.entries.length > 0) {
+        title = title || ytData.title || 'Imported YouTube Playlist';
+        videos = ytData.entries.map(v => ({
+          id: v.id,
+          title: v.title || 'Untitled Video',
+          artistName: v.uploader || v.channel || v.uploader_id || 'Unknown Artist',
+          duration: Math.floor(v.duration || 180),
+          coverUrl: `https://img.youtube.com/vi/${v.id}/hqdefault.jpg`
+        }));
+      }
+    } catch (ytErr) {
+      console.warn(`youtubedl playlist fetch failed, attempting youtube-sr fallback: ${ytErr.message}`);
     }
 
-    const title = playlistName || playlistDetails.title || 'Imported YouTube Playlist';
-    const firstVideo = playlistDetails.videos?.[0];
-    const defaultCover = firstVideo?.thumbnail?.url || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400&q=80';
+    // 2. Fallback to youtube-sr if youtube-dl produced no videos
+    if (videos.length === 0) {
+      const playlistDetails = await YouTube.getPlaylist(playlistId);
+      if (!playlistDetails || !playlistDetails.videos || playlistDetails.videos.length === 0) {
+        return res.status(404).json({ error: 'YouTube playlist not found or is private' });
+      }
+      title = title || playlistDetails.title || 'Imported YouTube Playlist';
+      videos = (playlistDetails.videos || []).map(v => ({
+        id: v.id,
+        title: v.title || 'Untitled Video',
+        artistName: v.channel?.name || 'Unknown Artist',
+        duration: Math.floor((v.duration || 180000) / 1000),
+        coverUrl: v.thumbnail?.url || `https://img.youtube.com/vi/${v.id}/hqdefault.jpg`
+      }));
+    }
+
+    if (videos.length === 0) {
+      return res.status(404).json({ error: 'No streamable videos found in YouTube playlist' });
+    }
+
+    const defaultCover = videos[0].coverUrl || 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400&q=80';
 
     // 1. Create playlist
     const playlistResult = await run(
@@ -153,18 +193,17 @@ router.post('/youtube-playlist', authenticateToken, async (req, res) => {
 
     // 2. Import each video
     const importedSongs = [];
-    const videos = playlistDetails.videos || [];
     let position = 1;
 
     for (const video of videos) {
       try {
-        const artistId = await findOrCreateArtist(video.channel?.name || 'Unknown Artist');
+        const artistId = await findOrCreateArtist(video.artistName);
         const song = await findOrCreateSong({
-          title: video.title || 'Untitled Video',
+          title: video.title,
           artistId,
-          duration: Math.floor((video.duration || 180000) / 1000), // convert ms to seconds
+          duration: video.duration,
           externalId: video.id,
-          coverUrl: video.thumbnail?.url || ''
+          coverUrl: video.coverUrl
         });
 
         // Link to playlist
@@ -176,7 +215,6 @@ router.post('/youtube-playlist', authenticateToken, async (req, res) => {
         importedSongs.push(song);
       } catch (err) {
         console.error(`Failed to import video ${video.id}:`, err);
-        // Continue with other videos
       }
     }
 
