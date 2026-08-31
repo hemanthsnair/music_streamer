@@ -458,6 +458,7 @@ router.get('/stream/:videoId', async (req, res) => {
     }
   } catch (streamErr) {
     console.error(`Direct stream fallback failed for video ${videoId}:`, streamErr.message);
+    import('../utils/youtubeDownloader.js').then(m => m.updateYtDlpBinary()).catch(() => {});
   }
 
   if (!res.headersSent) {

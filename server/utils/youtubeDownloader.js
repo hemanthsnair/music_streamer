@@ -1,10 +1,43 @@
 import youtubedl from 'youtube-dl-exec';
 import path from 'path';
 import fs from 'fs';
+import { exec } from 'child_process';
 import { run, get } from '../db.js';
 
 // In-memory set to prevent duplicate concurrent downloads of the same video
 const activeDownloads = new Set();
+let isUpdatingYtDlp = false;
+
+/**
+ * Automatically checks and updates the yt-dlp binary to the latest version.
+ */
+export async function updateYtDlpBinary() {
+  if (isUpdatingYtDlp) return;
+  isUpdatingYtDlp = true;
+
+  return new Promise((resolve) => {
+    try {
+      const binName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
+      const binPath = path.resolve(process.cwd(), 'node_modules', 'youtube-dl-exec', 'bin', binName);
+      if (fs.existsSync(binPath)) {
+        console.log(`Auto-updating yt-dlp binary at: ${binPath}`);
+        exec(`"${binPath}" -U`, (error, stdout, stderr) => {
+          if (stdout && stdout.trim()) console.log(`yt-dlp update stdout: ${stdout.trim()}`);
+          if (stderr && stderr.trim()) console.warn(`yt-dlp update stderr: ${stderr.trim()}`);
+          isUpdatingYtDlp = false;
+          resolve();
+        });
+      } else {
+        isUpdatingYtDlp = false;
+        resolve();
+      }
+    } catch (err) {
+      console.warn(`Failed to auto-update yt-dlp: ${err.message}`);
+      isUpdatingYtDlp = false;
+      resolve();
+    }
+  });
+}
 
 /**
  * Downloads a YouTube video's audio (format 140) to the uploads folder.

@@ -119,6 +119,9 @@ app.use((err, req, res, next) => {
 if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`Music Library Server is running on port ${PORT}`);
+    import('./utils/youtubeDownloader.js')
+      .then(m => m.updateYtDlpBinary())
+      .catch(err => console.warn('yt-dlp startup update error:', err));
   });
 }
 
