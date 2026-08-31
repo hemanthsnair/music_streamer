@@ -46,13 +46,26 @@ if (!process.env.VERCEL) {
     try {
       console.log(`Dynamic download triggered for missing YouTube video ID: ${videoId}`);
       const { downloadYoutubeAudio } = await import('./utils/youtubeDownloader.js');
-      await downloadYoutubeAudio(videoId);
-      console.log(`Dynamic download completed for YouTube video ID: ${videoId}`);
-      res.sendFile(outputPath);
+      const { default: youtubedl } = await import('youtube-dl-exec');
+      
+      // Trigger background download
+      downloadYoutubeAudio(videoId).catch(e => console.error('Background download error:', e));
+
+      // Redirect immediately to stream URL so playback starts without waiting
+      const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      const directUrl = await youtubedl(videoUrl, {
+        getUrl: true,
+        format: 'ba[ext=m4a]/140/ba/bestaudio/best',
+        noWarnings: true,
+        noCheckCertificates: true
+      });
+      if (directUrl && directUrl.trim()) {
+        return res.redirect(302, directUrl.trim());
+      }
     } catch (err) {
       console.error(`Dynamic download failed for video ID ${videoId}:`, err);
-      res.status(500).json({ error: 'Failed to retrieve YouTube audio' });
     }
+    res.status(500).json({ error: 'Failed to retrieve YouTube audio' });
   });
 
   app.use('/uploads', express.static(uploadsDir));

@@ -373,7 +373,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/songs/stream/:videoId - High reliability streaming proxy for YouTube audio
+// GET /api/songs/stream/:videoId - High reliability instant streaming proxy for YouTube audio
 router.get('/stream/:videoId', async (req, res) => {
   const { videoId } = req.params;
   if (!videoId || videoId === 'undefined' || videoId === 'null') {
@@ -390,18 +390,31 @@ router.get('/stream/:videoId', async (req, res) => {
 
   console.log(`Streaming YouTube audio on-the-fly for video ID: ${videoId}`);
 
-  // 2. Download audio on-demand via youtube-dl-exec (yt-dlp) and serve
+  // 2. Queue background download so local disk cache is created for future playback
+  get('SELECT id FROM songs WHERE externalId = ?', [videoId]).then(songRecord => {
+    if (songRecord) {
+      queueYoutubeDownload(songRecord.id, videoId);
+    }
+  }).catch(() => {});
+
+  // 3. Fast direct stream resolution: Get direct audio stream URL and redirect immediately
   try {
-    const fileUrl = await downloadYoutubeAudio(videoId);
-    const downloadedPath = path.join(process.cwd(), fileUrl);
-    if (fs.existsSync(downloadedPath)) {
-      return res.sendFile(downloadedPath);
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const directUrl = await youtubedl(videoUrl, {
+      getUrl: true,
+      format: 'ba[ext=m4a]/140/ba/bestaudio/best',
+      noWarnings: true,
+      noCheckCertificates: true
+    });
+
+    if (directUrl && directUrl.trim()) {
+      return res.redirect(302, directUrl.trim());
     }
   } catch (dlErr) {
-    console.warn(`downloadYoutubeAudio failed for ${videoId}: ${dlErr.message}, attempting direct streaming...`);
+    console.warn(`getUrl direct stream failed for ${videoId}: ${dlErr.message}, attempting stream fallback...`);
   }
 
-  // 3. Fallback: direct streaming via youtube-dl-exec JSON URL
+  // 4. Fallback: dump single JSON format extraction if getUrl failed
   try {
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
     const output = await youtubedl(videoUrl, {
@@ -414,13 +427,7 @@ router.get('/stream/:videoId', async (req, res) => {
     const audioFormats = output.formats?.filter(f => f.vcodec === 'none' && f.acodec !== 'none') || [];
     if (audioFormats.length > 0) {
       const bestAudio = audioFormats[0];
-      const audioRes = await fetch(bestAudio.url);
-      if (audioRes.ok && audioRes.body) {
-        res.setHeader('Content-Type', 'audio/m4a');
-        res.setHeader('Accept-Ranges', 'bytes');
-        const readable = Readable.fromWeb(audioRes.body);
-        return readable.pipe(res);
-      }
+      return res.redirect(302, bestAudio.url);
     }
   } catch (streamErr) {
     console.error(`Direct stream fallback failed for video ${videoId}:`, streamErr.message);

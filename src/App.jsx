@@ -299,7 +299,7 @@ const App = () => {
     let targetUrl = currentSong.audioUrl;
     const extId = currentSong.externalId || (currentSong.audioUrl ? getYoutubeId(currentSong.audioUrl) : null);
     
-    if (currentSong.sourceType === 'youtube' || extId) {
+    if (!targetUrl || targetUrl.includes('youtube.com') || targetUrl.includes('youtu.be')) {
       if (extId) {
         targetUrl = `/api/songs/stream/${extId}`;
       }
