@@ -55,7 +55,8 @@ if (!process.env.VERCEL) {
       const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
       const directUrl = await youtubedl(videoUrl, {
         getUrl: true,
-        format: 'ba[ext=m4a]/140/ba/bestaudio/best',
+        format: 'ba/best',
+        extractorArgs: 'youtube:player_client=android,web',
         noWarnings: true,
         noCheckCertificates: true
       });

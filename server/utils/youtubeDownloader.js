@@ -63,9 +63,10 @@ export async function downloadYoutubeAudio(videoId) {
 
   console.log(`Starting YouTube download for video ID: ${videoId}`);
   
-  // Format ba[ext=m4a]/140/ba/bestaudio/best uses native AAC m4a audio or best available audio stream.
+  // Format ba/best with extractorArgs bypasses cloud datacenter bot checks
   await youtubedl(videoUrl, {
-    format: 'ba[ext=m4a]/140/ba/bestaudio/best',
+    format: 'ba/best',
+    extractorArgs: 'youtube:player_client=android,web',
     output: outputPath,
     noCheckCertificates: true,
     noWarnings: true,
