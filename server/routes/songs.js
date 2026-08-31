@@ -397,6 +397,8 @@ router.get('/stream/:videoId', async (req, res) => {
     }
   }).catch(() => {});
 
+  let lastError = null;
+
   // 3. Fast direct stream proxy: Get direct audio stream URL and proxy response with Range support
   try {
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
@@ -426,6 +428,7 @@ router.get('/stream/:videoId', async (req, res) => {
       }
     }
   } catch (dlErr) {
+    lastError = dlErr.message;
     console.warn(`getUrl direct stream failed for ${videoId}: ${dlErr.message}, attempting stream fallback...`);
   }
 
@@ -457,12 +460,13 @@ router.get('/stream/:videoId', async (req, res) => {
       }
     }
   } catch (streamErr) {
+    lastError = streamErr.message;
     console.error(`Direct stream fallback failed for video ${videoId}:`, streamErr.message);
     import('../utils/youtubeDownloader.js').then(m => m.updateYtDlpBinary()).catch(() => {});
   }
 
   if (!res.headersSent) {
-    res.status(500).json({ error: 'Failed to retrieve YouTube audio stream' });
+    res.status(500).json({ error: 'Failed to retrieve YouTube audio stream', details: lastError });
   }
 });
 
