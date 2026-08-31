@@ -398,7 +398,13 @@ router.get('/stream/:videoId', async (req, res) => {
   }).catch(() => {});
 
   let lastError = null;
-  await ensureYtDlpBinary();
+  let binaryLog = 'none';
+  try {
+    const binPath = await ensureYtDlpBinary();
+    binaryLog = `binPath: ${binPath}, exists: ${fs.existsSync(binPath)}, size: ${fs.existsSync(binPath) ? fs.statSync(binPath).size : 0}`;
+  } catch (e) {
+    binaryLog = `ensureError: ${e.message}`;
+  }
   const youtubedl = getYtDlp();
 
   // 3. Fast direct stream proxy: Get direct audio stream URL and proxy response with Range support
@@ -469,7 +475,7 @@ router.get('/stream/:videoId', async (req, res) => {
   }
 
   if (!res.headersSent) {
-    res.status(500).json({ error: 'Failed to retrieve YouTube audio stream', details: lastError });
+    res.status(500).json({ error: 'Failed to retrieve YouTube audio stream', details: `${lastError} [BinaryLog: ${binaryLog}]` });
   }
 });
 
