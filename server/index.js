@@ -44,53 +44,88 @@ if (!process.env.VERCEL) {
       return next(); // file exists, let express.static serve it
     }
 
+    console.log(`Dynamic download triggered for missing YouTube video ID: ${videoId}`);
+
     try {
-      console.log(`Dynamic download triggered for missing YouTube video ID: ${videoId}`);
       const { downloadYoutubeAudio, ensureYtDlpBinary, getYtDlp } = await import('./utils/youtubeDownloader.js');
-      await ensureYtDlpBinary();
-      const youtubedl = getYtDlp();
+      const binPath = await ensureYtDlpBinary();
       
-      // Trigger background download
+      // Trigger background download for caching
       downloadYoutubeAudio(videoId).catch(e => console.error('Background download error:', e));
 
-      // Proxy audio stream immediately so playback starts without waiting for full download
       const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-      const playerClients = ['android_creator', 'android', 'ios'];
+      const ytBin = binPath && fs.existsSync(binPath) ? binPath : 'yt-dlp';
 
-      for (const client of playerClients) {
-        if (res.headersSent) return;
-        try {
-          const directUrl = await youtubedl(videoUrl, {
-            getUrl: true,
-            format: 'ba/best',
-            extractorArgs: `youtube:player_client=${client}`,
-            noWarnings: true,
-            noCheckCertificates: true
-          });
-          if (directUrl && directUrl.trim()) {
-            const headers = req.headers.range ? { range: req.headers.range } : {};
-            headers['User-Agent'] = 'com.google.android.youtube/19.02.39 (Linux; U; Android 14)';
-            const audioRes = await fetch(directUrl.trim(), { headers });
-            if (audioRes.ok || audioRes.status === 206) {
-              res.status(audioRes.status);
-              if (audioRes.headers.get('content-type')) res.setHeader('Content-Type', audioRes.headers.get('content-type'));
-              if (audioRes.headers.get('content-length')) res.setHeader('Content-Length', audioRes.headers.get('content-length'));
-              if (audioRes.headers.get('content-range')) res.setHeader('Content-Range', audioRes.headers.get('content-range'));
-              if (audioRes.headers.get('accept-ranges')) res.setHeader('Accept-Ranges', audioRes.headers.get('accept-ranges'));
+      // Primary: pipe yt-dlp stdout directly (fastest)
+      const { spawn: spawnProcess } = await import('child_process');
+      await new Promise((resolve, reject) => {
+        const proc = spawnProcess(ytBin, [
+          '-f', 'ba[ext=m4a]/ba/best',
+          '--extractor-args', 'youtube:player_client=android_creator',
+          '--no-warnings', '--no-check-certificates', '--no-playlist',
+          '-o', '-', videoUrl
+        ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
-              const readable = Readable.fromWeb(audioRes.body);
-              readable.on('error', () => { if (!res.writableEnded) res.end(); });
-              return readable.pipe(res);
-            }
+        let headersSent = false;
+        let stderrData = '';
+        proc.stderr.on('data', (chunk) => { stderrData += chunk.toString(); });
+        proc.stdout.once('data', () => {
+          if (!headersSent) {
+            headersSent = true;
+            res.setHeader('Content-Type', 'audio/mp4');
+            res.setHeader('Transfer-Encoding', 'chunked');
           }
-        } catch (clientErr) {
-          console.warn(`Upload proxy: client=${client} failed for ${videoId}: ${clientErr.message}`);
-          continue;
-        }
-      }
-    } catch (err) {
-      console.error(`Dynamic download failed for video ID ${videoId}:`, err);
+        });
+        proc.stdout.pipe(res);
+        proc.on('close', (code) => {
+          if (code === 0 || headersSent) resolve();
+          else reject(new Error(`yt-dlp exit ${code}: ${stderrData.slice(0, 300)}`));
+        });
+        proc.on('error', reject);
+        res.on('close', () => { try { proc.kill('SIGTERM'); } catch (e) {} });
+      });
+      return;
+    } catch (pipeErr) {
+      console.warn(`Upload proxy pipe failed for ${videoId}: ${pipeErr.message}`);
     }
+
+    // Fallback: parallel URL race
+    if (!res.headersSent) {
+      try {
+        const { getYtDlp } = await import('./utils/youtubeDownloader.js');
+        const youtubedl = getYtDlp();
+        const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+        const clients = ['android_creator', 'android', 'ios'];
+
+        const getUrl = async (client) => {
+          const url = await youtubedl(videoUrl, {
+            getUrl: true, format: 'ba/best',
+            extractorArgs: `youtube:player_client=${client}`,
+            noWarnings: true, noCheckCertificates: true, noPlaylist: true,
+          });
+          if (!url || !url.trim()) throw new Error('empty');
+          return url.trim();
+        };
+
+        const directUrl = await Promise.any(clients.map(c => getUrl(c)));
+        const headers = req.headers.range ? { range: req.headers.range } : {};
+        headers['User-Agent'] = 'com.google.android.youtube/19.02.39 (Linux; U; Android 14)';
+        const audioRes = await fetch(directUrl, { headers });
+        if (audioRes.ok || audioRes.status === 206) {
+          res.status(audioRes.status);
+          if (audioRes.headers.get('content-type')) res.setHeader('Content-Type', audioRes.headers.get('content-type'));
+          if (audioRes.headers.get('content-length')) res.setHeader('Content-Length', audioRes.headers.get('content-length'));
+          if (audioRes.headers.get('content-range')) res.setHeader('Content-Range', audioRes.headers.get('content-range'));
+          if (audioRes.headers.get('accept-ranges')) res.setHeader('Accept-Ranges', audioRes.headers.get('accept-ranges'));
+          const readable = Readable.fromWeb(audioRes.body);
+          readable.on('error', () => { if (!res.writableEnded) res.end(); });
+          return readable.pipe(res);
+        }
+      } catch (err) {
+        console.error(`Dynamic download fallback failed for ${videoId}:`, err.message);
+      }
+    }
+
     if (!res.headersSent) {
       res.status(500).json({ error: 'Failed to retrieve YouTube audio' });
     }
