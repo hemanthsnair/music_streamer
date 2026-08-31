@@ -124,21 +124,36 @@ export async function downloadYoutubeAudio(videoId) {
   await ensureYtDlpBinary();
   const youtubedl = getYtDlp();
   
-  // Format ba/best with extractorArgs bypasses cloud datacenter bot checks
-  await youtubedl(videoUrl, {
-    format: 'ba/best',
-    extractorArgs: 'youtube:player_client=android',
-    output: outputPath,
-    noCheckCertificates: true,
-    noWarnings: true,
-  });
+  // Try multiple player clients for resilience against YouTube blocking
+  const playerClients = ['android_creator', 'android', 'ios', 'web'];
+  let lastErr = null;
 
-  if (!fs.existsSync(outputPath)) {
-    throw new Error(`File was not created at expected path: ${outputPath}`);
+  for (const client of playerClients) {
+    try {
+      await youtubedl(videoUrl, {
+        format: 'ba/best',
+        extractorArgs: `youtube:player_client=${client}`,
+        output: outputPath,
+        noCheckCertificates: true,
+        noWarnings: true,
+      });
+
+      if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+        console.log(`Successfully downloaded YouTube audio: ${filename} (${fs.statSync(outputPath).size} bytes) using client=${client}`);
+        return `/uploads/${filename}`;
+      }
+    } catch (err) {
+      lastErr = err;
+      console.warn(`Download attempt with client=${client} failed for ${videoId}: ${err.message}`);
+      // Clean up partial file
+      if (fs.existsSync(outputPath)) {
+        try { fs.unlinkSync(outputPath); } catch (e) {}
+      }
+      continue;
+    }
   }
 
-  console.log(`Successfully downloaded YouTube audio: ${filename} (${fs.statSync(outputPath).size} bytes)`);
-  return `/uploads/${filename}`;
+  throw lastErr || new Error(`All download attempts failed for video: ${videoId}`);
 }
 
 /**
@@ -187,3 +202,15 @@ export function queueYoutubeDownload(songId, videoId) {
 }
 
 export { activeDownloads };
+
+/**
+ * Force re-download of the yt-dlp binary (used when extraction fails repeatedly).
+ */
+export async function updateYtDlpBinary() {
+  updatePromise = null;
+  // Remove existing binary to force re-download
+  if (fs.existsSync(customBinPath)) {
+    try { fs.unlinkSync(customBinPath); } catch (e) {}
+  }
+  return ensureYtDlpBinary();
+}

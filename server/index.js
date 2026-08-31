@@ -3,6 +3,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import fs from 'fs';
 import path from 'path';
+import { Readable } from 'stream';
 import { fileURLToPath } from 'url';
 import db from './db.js'; // imports and starts database schema setup
 
@@ -54,31 +55,45 @@ if (!process.env.VERCEL) {
 
       // Proxy audio stream immediately so playback starts without waiting for full download
       const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-      const directUrl = await youtubedl(videoUrl, {
-        getUrl: true,
-        format: 'ba/best',
-        extractorArgs: 'youtube:player_client=android',
-        noWarnings: true,
-        noCheckCertificates: true
-      });
-      if (directUrl && directUrl.trim()) {
-        const headers = req.headers.range ? { range: req.headers.range } : {};
-        const audioRes = await fetch(directUrl.trim(), { headers });
-        if (audioRes.ok || audioRes.status === 206) {
-          res.status(audioRes.status);
-          if (audioRes.headers.get('content-type')) res.setHeader('Content-Type', audioRes.headers.get('content-type'));
-          if (audioRes.headers.get('content-length')) res.setHeader('Content-Length', audioRes.headers.get('content-length'));
-          if (audioRes.headers.get('content-range')) res.setHeader('Content-Range', audioRes.headers.get('content-range'));
-          if (audioRes.headers.get('accept-ranges')) res.setHeader('Accept-Ranges', audioRes.headers.get('accept-ranges'));
+      const playerClients = ['android_creator', 'android', 'ios'];
 
-          const readable = Readable.fromWeb(audioRes.body);
-          return readable.pipe(res);
+      for (const client of playerClients) {
+        if (res.headersSent) return;
+        try {
+          const directUrl = await youtubedl(videoUrl, {
+            getUrl: true,
+            format: 'ba/best',
+            extractorArgs: `youtube:player_client=${client}`,
+            noWarnings: true,
+            noCheckCertificates: true
+          });
+          if (directUrl && directUrl.trim()) {
+            const headers = req.headers.range ? { range: req.headers.range } : {};
+            headers['User-Agent'] = 'com.google.android.youtube/19.02.39 (Linux; U; Android 14)';
+            const audioRes = await fetch(directUrl.trim(), { headers });
+            if (audioRes.ok || audioRes.status === 206) {
+              res.status(audioRes.status);
+              if (audioRes.headers.get('content-type')) res.setHeader('Content-Type', audioRes.headers.get('content-type'));
+              if (audioRes.headers.get('content-length')) res.setHeader('Content-Length', audioRes.headers.get('content-length'));
+              if (audioRes.headers.get('content-range')) res.setHeader('Content-Range', audioRes.headers.get('content-range'));
+              if (audioRes.headers.get('accept-ranges')) res.setHeader('Accept-Ranges', audioRes.headers.get('accept-ranges'));
+
+              const readable = Readable.fromWeb(audioRes.body);
+              readable.on('error', () => { if (!res.writableEnded) res.end(); });
+              return readable.pipe(res);
+            }
+          }
+        } catch (clientErr) {
+          console.warn(`Upload proxy: client=${client} failed for ${videoId}: ${clientErr.message}`);
+          continue;
         }
       }
     } catch (err) {
       console.error(`Dynamic download failed for video ID ${videoId}:`, err);
     }
-    res.status(500).json({ error: 'Failed to retrieve YouTube audio' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to retrieve YouTube audio' });
+    }
   });
 
   app.use('/uploads', express.static(uploadsDir));

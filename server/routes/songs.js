@@ -373,7 +373,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/songs/stream/:videoId - Zero-latency high-reliability streaming proxy for YouTube audio
+// GET /api/songs/stream/:videoId - Streaming proxy for YouTube audio using yt-dlp stdout pipe
 router.get('/stream/:videoId', async (req, res) => {
   const { videoId } = req.params;
   if (!videoId || videoId === 'undefined' || videoId === 'null') {
@@ -385,10 +385,28 @@ router.get('/stream/:videoId', async (req, res) => {
 
   // 1. If cached audio file exists on disk, serve directly
   if (fs.existsSync(cachedFile)) {
-    return res.sendFile(cachedFile);
+    const stat = fs.statSync(cachedFile);
+    const range = req.headers.range;
+
+    if (range) {
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Content-Length', end - start + 1);
+      res.setHeader('Content-Type', 'audio/mp4');
+      return fs.createReadStream(cachedFile, { start, end }).pipe(res);
+    }
+
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Content-Type', 'audio/mp4');
+    res.setHeader('Accept-Ranges', 'bytes');
+    return fs.createReadStream(cachedFile).pipe(res);
   }
 
-  console.log(`Streaming YouTube audio proxy on-the-fly for video ID: ${videoId}`);
+  console.log(`Streaming YouTube audio for video ID: ${videoId}`);
 
   // 2. Queue background download so local disk cache is created for future playback
   get('SELECT id FROM songs WHERE externalId = ?', [videoId]).then(songRecord => {
@@ -397,81 +415,113 @@ router.get('/stream/:videoId', async (req, res) => {
     }
   }).catch(() => {});
 
-  let lastError = null;
-  let binaryLog = 'none';
+  // 3. Ensure yt-dlp binary is available
+  let binPath;
   try {
-    const binPath = await ensureYtDlpBinary();
-    binaryLog = `binPath: ${binPath}, exists: ${fs.existsSync(binPath)}, size: ${fs.existsSync(binPath) ? fs.statSync(binPath).size : 0}`;
+    binPath = await ensureYtDlpBinary();
   } catch (e) {
-    binaryLog = `ensureError: ${e.message}`;
-  }
-  const youtubedl = getYtDlp();
-
-  // 3. Fast direct stream proxy: Get direct audio stream URL and proxy response with Range support
-  try {
-    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const directUrl = await youtubedl(videoUrl, {
-      getUrl: true,
-      format: 'ba/best',
-      extractorArgs: 'youtube:player_client=android',
-      noWarnings: true,
-      noCheckCertificates: true
-    });
-
-    if (directUrl && directUrl.trim()) {
-      const headers = {};
-      if (req.headers.range) {
-        headers['range'] = req.headers.range;
-      }
-      
-      const audioRes = await fetch(directUrl.trim(), { headers });
-      if (audioRes.ok || audioRes.status === 206) {
-        res.status(audioRes.status);
-        if (audioRes.headers.get('content-type')) res.setHeader('Content-Type', audioRes.headers.get('content-type'));
-        if (audioRes.headers.get('content-length')) res.setHeader('Content-Length', audioRes.headers.get('content-length'));
-        if (audioRes.headers.get('content-range')) res.setHeader('Content-Range', audioRes.headers.get('content-range'));
-        if (audioRes.headers.get('accept-ranges')) res.setHeader('Accept-Ranges', audioRes.headers.get('accept-ranges'));
-
-        const readable = Readable.fromWeb(audioRes.body);
-        return readable.pipe(res);
-      }
-    }
-  } catch (dlErr) {
-    lastError = dlErr.message;
-    console.warn(`getUrl direct stream failed for ${videoId}: ${dlErr.message}, attempting stream fallback...`);
+    console.error('Failed to ensure yt-dlp binary:', e.message);
   }
 
-  // 4. Fallback: dump single JSON format extraction if getUrl failed
-  try {
-    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const output = await youtubedl(videoUrl, {
-      dumpSingleJson: true,
-      extractorArgs: 'youtube:player_client=android',
-      noWarnings: true,
-      noCheckCertificates: true
-    });
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-    const audioFormats = output.formats?.filter(f => f.vcodec === 'none' && f.acodec !== 'none') || [];
-    if (audioFormats.length > 0) {
-      const bestAudio = audioFormats[0];
-      const audioRes = await fetch(bestAudio.url, {
-        headers: req.headers.range ? { range: req.headers.range } : {}
+  // 4. Try streaming with multiple player clients for resilience
+  const playerClients = ['android_creator', 'android', 'ios', 'web'];
+
+  for (const client of playerClients) {
+    if (res.headersSent) break;
+
+    // Use youtube-dl-exec to get direct audio URL, then proxy the response
+    try {
+      const youtubedl = getYtDlp();
+      const directUrl = await youtubedl(videoUrl, {
+        getUrl: true,
+        format: 'ba/best',
+        extractorArgs: `youtube:player_client=${client}`,
+        noWarnings: true,
+        noCheckCertificates: true
       });
-      if (audioRes.ok || audioRes.status === 206) {
-        res.status(audioRes.status);
-        if (audioRes.headers.get('content-type')) res.setHeader('Content-Type', audioRes.headers.get('content-type'));
-        if (audioRes.headers.get('content-length')) res.setHeader('Content-Length', audioRes.headers.get('content-length'));
-        if (audioRes.headers.get('content-range')) res.setHeader('Content-Range', audioRes.headers.get('content-range'));
-        if (audioRes.headers.get('accept-ranges')) res.setHeader('Accept-Ranges', audioRes.headers.get('accept-ranges'));
 
-        const readable = Readable.fromWeb(audioRes.body);
-        return readable.pipe(res);
+      if (directUrl && directUrl.trim()) {
+        const headers = {};
+        if (req.headers.range) {
+          headers['range'] = req.headers.range;
+        }
+        // Mimic Android YouTube client for URL validity
+        headers['User-Agent'] = 'com.google.android.youtube/19.02.39 (Linux; U; Android 14)';
+
+        const audioRes = await fetch(directUrl.trim(), { headers });
+        if (audioRes.ok || audioRes.status === 206) {
+          res.status(audioRes.status);
+          if (audioRes.headers.get('content-type')) res.setHeader('Content-Type', audioRes.headers.get('content-type'));
+          if (audioRes.headers.get('content-length')) res.setHeader('Content-Length', audioRes.headers.get('content-length'));
+          if (audioRes.headers.get('content-range')) res.setHeader('Content-Range', audioRes.headers.get('content-range'));
+          if (audioRes.headers.get('accept-ranges')) res.setHeader('Accept-Ranges', audioRes.headers.get('accept-ranges'));
+
+          const readable = Readable.fromWeb(audioRes.body);
+          readable.on('error', () => { if (!res.writableEnded) res.end(); });
+          return readable.pipe(res);
+        }
       }
+    } catch (dlErr) {
+      console.warn(`Stream attempt with client=${client} failed for ${videoId}: ${dlErr.message}`);
+      continue;
     }
-  } catch (streamErr) {
-    lastError = streamErr.message;
-    console.error(`Direct stream fallback failed for video ${videoId}:`, streamErr.message);
-    import('../utils/youtubeDownloader.js').then(m => m.updateYtDlpBinary()).catch(() => {});
+  }
+
+  // 5. Last resort: Use child_process to pipe yt-dlp stdout directly
+  if (!res.headersSent) {
+    try {
+      const { spawn: spawnProcess } = await import('child_process');
+      const ytBin = binPath && fs.existsSync(binPath) ? binPath : 'yt-dlp';
+
+      await new Promise((resolve, reject) => {
+        const proc = spawnProcess(ytBin, [
+          '-f', 'ba/best',
+          '--extractor-args', 'youtube:player_client=android_creator',
+          '--no-warnings',
+          '--no-check-certificates',
+          '-o', '-',
+          videoUrl
+        ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+        let headersSent = false;
+        let stderrData = '';
+
+        proc.stderr.on('data', (chunk) => {
+          stderrData += chunk.toString();
+        });
+
+        proc.stdout.on('data', () => {
+          if (!headersSent) {
+            headersSent = true;
+            res.setHeader('Content-Type', 'audio/webm');
+            res.setHeader('Transfer-Encoding', 'chunked');
+          }
+        });
+
+        proc.stdout.pipe(res);
+
+        proc.on('close', (code) => {
+          if (code === 0 || headersSent) {
+            resolve();
+          } else {
+            reject(new Error(`yt-dlp exited with code ${code}: ${stderrData.slice(0, 200)}`));
+          }
+        });
+
+        proc.on('error', (err) => reject(err));
+
+        // If client disconnects, kill the process
+        res.on('close', () => {
+          try { proc.kill('SIGTERM'); } catch (e) {}
+        });
+      });
+
+      return; // Successfully piped
+    } catch (pipeErr) {
+      console.error(`stdout pipe fallback failed for ${videoId}:`, pipeErr.message);
+    }
   }
 
   if (!res.headersSent) {
