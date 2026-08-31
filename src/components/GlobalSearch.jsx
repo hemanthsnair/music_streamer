@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Search, Plus, Music, Play, Pause, Loader2, ListPlus } from 'lucide-react';
 
-const GlobalSearch = ({ token, currentSongId, isPlaying, onPlaySong, playlists, onAddToPlaylist }) => {
+const GlobalSearch = ({ token, currentSongId, isPlaying, onPlaySong, playlists, onAddToPlaylist, showToast }) => {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
@@ -21,7 +21,8 @@ const GlobalSearch = ({ token, currentSongId, isPlaying, onPlaySong, playlists, 
       setResults(data);
     } catch (err) {
       console.error(err);
-      alert('Error searching YouTube');
+      if (showToast) showToast('Error searching YouTube', 'error');
+      else alert('Error searching YouTube');
     } finally {
       setLoading(false);
     }
@@ -46,10 +47,12 @@ const GlobalSearch = ({ token, currentSongId, isPlaying, onPlaySong, playlists, 
       });
       if (!response.ok) throw new Error('Import failed');
       const importedSong = await response.json();
-      alert(`"${importedSong.title}" has been successfully added to your catalog!`);
+      if (showToast) showToast(`"${importedSong.title}" added to catalog!`, 'success');
+      else alert(`"${importedSong.title}" has been successfully added to your catalog!`);
     } catch (err) {
       console.error(err);
-      alert('Failed to import song.');
+      if (showToast) showToast('Failed to import song.', 'error');
+      else alert('Failed to import song.');
     } finally {
       setImportingId(null);
     }
@@ -62,7 +65,7 @@ const GlobalSearch = ({ token, currentSongId, isPlaying, onPlaySong, playlists, 
       title: video.title,
       artistName: video.artistName,
       duration: video.duration,
-      audioUrl: `https://www.youtube.com/watch?v=${video.videoId}`,
+      audioUrl: `/api/songs/stream/${video.videoId}`,
       sourceType: 'youtube',
       externalId: video.videoId,
       coverUrl: video.coverUrl,

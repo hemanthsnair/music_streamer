@@ -373,7 +373,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/songs/stream/:videoId - High reliability instant streaming proxy for YouTube audio
+// GET /api/songs/stream/:videoId - Zero-latency high-reliability streaming proxy for YouTube audio
 router.get('/stream/:videoId', async (req, res) => {
   const { videoId } = req.params;
   if (!videoId || videoId === 'undefined' || videoId === 'null') {
@@ -388,7 +388,7 @@ router.get('/stream/:videoId', async (req, res) => {
     return res.sendFile(cachedFile);
   }
 
-  console.log(`Streaming YouTube audio on-the-fly for video ID: ${videoId}`);
+  console.log(`Streaming YouTube audio proxy on-the-fly for video ID: ${videoId}`);
 
   // 2. Queue background download so local disk cache is created for future playback
   get('SELECT id FROM songs WHERE externalId = ?', [videoId]).then(songRecord => {
@@ -397,7 +397,7 @@ router.get('/stream/:videoId', async (req, res) => {
     }
   }).catch(() => {});
 
-  // 3. Fast direct stream resolution: Get direct audio stream URL and redirect immediately
+  // 3. Fast direct stream proxy: Get direct audio stream URL and proxy response with Range support
   try {
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
     const directUrl = await youtubedl(videoUrl, {
@@ -408,7 +408,22 @@ router.get('/stream/:videoId', async (req, res) => {
     });
 
     if (directUrl && directUrl.trim()) {
-      return res.redirect(302, directUrl.trim());
+      const headers = {};
+      if (req.headers.range) {
+        headers['range'] = req.headers.range;
+      }
+      
+      const audioRes = await fetch(directUrl.trim(), { headers });
+      if (audioRes.ok || audioRes.status === 206) {
+        res.status(audioRes.status);
+        if (audioRes.headers.get('content-type')) res.setHeader('Content-Type', audioRes.headers.get('content-type'));
+        if (audioRes.headers.get('content-length')) res.setHeader('Content-Length', audioRes.headers.get('content-length'));
+        if (audioRes.headers.get('content-range')) res.setHeader('Content-Range', audioRes.headers.get('content-range'));
+        if (audioRes.headers.get('accept-ranges')) res.setHeader('Accept-Ranges', audioRes.headers.get('accept-ranges'));
+
+        const readable = Readable.fromWeb(audioRes.body);
+        return readable.pipe(res);
+      }
     }
   } catch (dlErr) {
     console.warn(`getUrl direct stream failed for ${videoId}: ${dlErr.message}, attempting stream fallback...`);
@@ -427,7 +442,19 @@ router.get('/stream/:videoId', async (req, res) => {
     const audioFormats = output.formats?.filter(f => f.vcodec === 'none' && f.acodec !== 'none') || [];
     if (audioFormats.length > 0) {
       const bestAudio = audioFormats[0];
-      return res.redirect(302, bestAudio.url);
+      const audioRes = await fetch(bestAudio.url, {
+        headers: req.headers.range ? { range: req.headers.range } : {}
+      });
+      if (audioRes.ok || audioRes.status === 206) {
+        res.status(audioRes.status);
+        if (audioRes.headers.get('content-type')) res.setHeader('Content-Type', audioRes.headers.get('content-type'));
+        if (audioRes.headers.get('content-length')) res.setHeader('Content-Length', audioRes.headers.get('content-length'));
+        if (audioRes.headers.get('content-range')) res.setHeader('Content-Range', audioRes.headers.get('content-range'));
+        if (audioRes.headers.get('accept-ranges')) res.setHeader('Accept-Ranges', audioRes.headers.get('accept-ranges'));
+
+        const readable = Readable.fromWeb(audioRes.body);
+        return readable.pipe(res);
+      }
     }
   } catch (streamErr) {
     console.error(`Direct stream fallback failed for video ${videoId}:`, streamErr.message);

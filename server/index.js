@@ -51,7 +51,7 @@ if (!process.env.VERCEL) {
       // Trigger background download
       downloadYoutubeAudio(videoId).catch(e => console.error('Background download error:', e));
 
-      // Redirect immediately to stream URL so playback starts without waiting
+      // Proxy audio stream immediately so playback starts without waiting for full download
       const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
       const directUrl = await youtubedl(videoUrl, {
         getUrl: true,
@@ -60,7 +60,18 @@ if (!process.env.VERCEL) {
         noCheckCertificates: true
       });
       if (directUrl && directUrl.trim()) {
-        return res.redirect(302, directUrl.trim());
+        const headers = req.headers.range ? { range: req.headers.range } : {};
+        const audioRes = await fetch(directUrl.trim(), { headers });
+        if (audioRes.ok || audioRes.status === 206) {
+          res.status(audioRes.status);
+          if (audioRes.headers.get('content-type')) res.setHeader('Content-Type', audioRes.headers.get('content-type'));
+          if (audioRes.headers.get('content-length')) res.setHeader('Content-Length', audioRes.headers.get('content-length'));
+          if (audioRes.headers.get('content-range')) res.setHeader('Content-Range', audioRes.headers.get('content-range'));
+          if (audioRes.headers.get('accept-ranges')) res.setHeader('Accept-Ranges', audioRes.headers.get('accept-ranges'));
+
+          const readable = Readable.fromWeb(audioRes.body);
+          return readable.pipe(res);
+        }
       }
     } catch (err) {
       console.error(`Dynamic download failed for video ID ${videoId}:`, err);
