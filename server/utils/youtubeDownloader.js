@@ -7,13 +7,15 @@ import { run, get } from '../db.js';
 
 // In-memory set to prevent duplicate concurrent downloads of the same video
 const activeDownloads = new Set();
-const binDir = path.resolve(process.cwd(), 'bin');
+const binDir = process.platform === 'win32'
+  ? path.resolve(process.cwd(), 'bin')
+  : '/tmp/yt-dlp-bin';
 const binName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
 const customBinPath = path.join(binDir, binName);
 
 function downloadFile(url, dest) {
   return new Promise((resolve, reject) => {
-    https.get(url, (res) => {
+    https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         return downloadFile(res.headers.location, dest).then(resolve).catch(reject);
       }
