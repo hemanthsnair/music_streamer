@@ -475,7 +475,7 @@ router.get('/stream/:videoId', async (req, res) => {
   }
 
   if (!res.headersSent) {
-    res.status(500).json({ error: 'Failed to retrieve YouTube audio stream', details: `${lastError} [BinaryLog: ${binaryLog}]` });
+    res.status(500).json({ error: 'Failed to retrieve YouTube audio stream' });
   }
 });
 
