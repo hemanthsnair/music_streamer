@@ -45,8 +45,9 @@ if (!process.env.VERCEL) {
 
     try {
       console.log(`Dynamic download triggered for missing YouTube video ID: ${videoId}`);
-      const { downloadYoutubeAudio } = await import('./utils/youtubeDownloader.js');
-      const { default: youtubedl } = await import('youtube-dl-exec');
+      const { downloadYoutubeAudio, ensureYtDlpBinary, getYtDlp } = await import('./utils/youtubeDownloader.js');
+      await ensureYtDlpBinary();
+      const youtubedl = getYtDlp();
       
       // Trigger background download
       downloadYoutubeAudio(videoId).catch(e => console.error('Background download error:', e));
@@ -121,8 +122,8 @@ if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`Music Library Server is running on port ${PORT}`);
     import('./utils/youtubeDownloader.js')
-      .then(m => m.updateYtDlpBinary())
-      .catch(err => console.warn('yt-dlp startup update error:', err));
+      .then(m => m.ensureYtDlpBinary())
+      .catch(err => console.warn('yt-dlp startup binary download error:', err));
   });
 }
 

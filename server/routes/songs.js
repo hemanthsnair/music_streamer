@@ -9,7 +9,7 @@ import play from 'play-dl';
 import youtubedl from 'youtube-dl-exec';
 import { run, get, all } from '../db.js';
 import { authenticateToken, JWT_SECRET } from '../middleware/auth.js';
-import { downloadYoutubeAudio, queueYoutubeDownload } from '../utils/youtubeDownloader.js';
+import { downloadYoutubeAudio, queueYoutubeDownload, ensureYtDlpBinary, getYtDlp } from '../utils/youtubeDownloader.js';
 
 const router = express.Router();
 
@@ -398,6 +398,8 @@ router.get('/stream/:videoId', async (req, res) => {
   }).catch(() => {});
 
   let lastError = null;
+  await ensureYtDlpBinary();
+  const youtubedl = getYtDlp();
 
   // 3. Fast direct stream proxy: Get direct audio stream URL and proxy response with Range support
   try {

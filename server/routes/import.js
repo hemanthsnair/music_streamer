@@ -4,7 +4,7 @@ import { YouTube } from 'youtube-sr';
 import youtubedl from 'youtube-dl-exec';
 import { run, get, all } from '../db.js';
 import { authenticateToken } from '../middleware/auth.js';
-import { queueYoutubeDownload } from '../utils/youtubeDownloader.js';
+import { queueYoutubeDownload, ensureYtDlpBinary, getYtDlp } from '../utils/youtubeDownloader.js';
 
 const router = express.Router();
 
@@ -141,6 +141,8 @@ router.post('/youtube-playlist', authenticateToken, async (req, res) => {
 
     // 1. Try fetching playlist details using youtube-dl (yt-dlp)
     try {
+      await ensureYtDlpBinary();
+      const youtubedl = getYtDlp();
       const fullUrl = `https://www.youtube.com/playlist?list=${playlistId}`;
       const ytData = await youtubedl(fullUrl, {
         dumpSingleJson: true,

@@ -1,42 +1,99 @@
-import youtubedl from 'youtube-dl-exec';
+import defaultYoutubedl, { create } from 'youtube-dl-exec';
 import path from 'path';
 import fs from 'fs';
+import https from 'https';
 import { exec } from 'child_process';
 import { run, get } from '../db.js';
 
 // In-memory set to prevent duplicate concurrent downloads of the same video
 const activeDownloads = new Set();
-let isUpdatingYtDlp = false;
+const binDir = path.resolve(process.cwd(), 'bin');
+const binName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
+const customBinPath = path.join(binDir, binName);
+
+function downloadFile(url, dest) {
+  return new Promise((resolve, reject) => {
+    https.get(url, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return downloadFile(res.headers.location, dest).then(resolve).catch(reject);
+      }
+      if (res.statusCode !== 200) {
+        return reject(new Error(`Failed to download yt-dlp binary: HTTP ${res.statusCode}`));
+      }
+      const fileStream = fs.createWriteStream(dest);
+      res.pipe(fileStream);
+      fileStream.on('finish', () => {
+        fileStream.close();
+        if (process.platform !== 'win32') {
+          try { fs.chmodSync(dest, 0o755); } catch (e) {}
+        }
+        resolve(dest);
+      });
+      fileStream.on('error', (err) => {
+        fs.unlink(dest, () => {});
+        reject(err);
+      });
+    }).on('error', reject);
+  });
+}
+
+let updatePromise = null;
 
 /**
- * Automatically checks and updates the yt-dlp binary to the latest version.
+ * Downloads the latest release of yt-dlp directly from GitHub to process.cwd()/bin
  */
-export async function updateYtDlpBinary() {
-  if (isUpdatingYtDlp) return;
-  isUpdatingYtDlp = true;
+export async function ensureYtDlpBinary() {
+  if (updatePromise) return updatePromise;
 
-  return new Promise((resolve) => {
+  updatePromise = (async () => {
     try {
-      const binName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
-      const binPath = path.resolve(process.cwd(), 'node_modules', 'youtube-dl-exec', 'bin', binName);
-      if (fs.existsSync(binPath)) {
-        console.log(`Auto-updating yt-dlp binary at: ${binPath}`);
-        exec(`"${binPath}" -U`, (error, stdout, stderr) => {
-          if (stdout && stdout.trim()) console.log(`yt-dlp update stdout: ${stdout.trim()}`);
-          if (stderr && stderr.trim()) console.warn(`yt-dlp update stderr: ${stderr.trim()}`);
-          isUpdatingYtDlp = false;
-          resolve();
-        });
-      } else {
-        isUpdatingYtDlp = false;
-        resolve();
+      if (!fs.existsSync(binDir)) {
+        fs.mkdirSync(binDir, { recursive: true });
+      }
+
+      if (fs.existsSync(customBinPath)) {
+        const stats = fs.statSync(customBinPath);
+        const ageInHours = (Date.now() - stats.mtimeMs) / (1000 * 60 * 60);
+        if (ageInHours < 24 && stats.size > 1000000) {
+          console.log(`Using cached yt-dlp binary at ${customBinPath} (${(stats.size / 1024 / 1024).toFixed(1)} MB)`);
+          return customBinPath;
+        }
+      }
+
+      console.log(`Downloading latest yt-dlp binary from GitHub releases to ${customBinPath}...`);
+      const downloadUrl = process.platform === 'win32'
+        ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
+        : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+
+      const tempPath = `${customBinPath}.tmp`;
+      await downloadFile(downloadUrl, tempPath);
+      
+      if (fs.existsSync(tempPath) && fs.statSync(tempPath).size > 1000000) {
+        if (fs.existsSync(customBinPath)) {
+          try { fs.unlinkSync(customBinPath); } catch (e) {}
+        }
+        fs.renameSync(tempPath, customBinPath);
+        if (process.platform !== 'win32') {
+          try { fs.chmodSync(customBinPath, 0o755); } catch (e) {}
+        }
+        console.log(`Successfully updated yt-dlp binary to latest version!`);
       }
     } catch (err) {
-      console.warn(`Failed to auto-update yt-dlp: ${err.message}`);
-      isUpdatingYtDlp = false;
-      resolve();
+      console.warn(`Failed to auto-download yt-dlp binary from GitHub: ${err.message}. Falling back to default binary.`);
     }
-  });
+  })();
+
+  return updatePromise;
+}
+
+/**
+ * Returns a custom youtube-dl-exec instance targeting the latest binary if available.
+ */
+export function getYtDlp() {
+  if (fs.existsSync(customBinPath) && fs.statSync(customBinPath).size > 1000000) {
+    return create(customBinPath);
+  }
+  return defaultYoutubedl;
 }
 
 /**
@@ -62,6 +119,8 @@ export async function downloadYoutubeAudio(videoId) {
   }
 
   console.log(`Starting YouTube download for video ID: ${videoId}`);
+  await ensureYtDlpBinary();
+  const youtubedl = getYtDlp();
   
   // Format ba/best with extractorArgs bypasses cloud datacenter bot checks
   await youtubedl(videoUrl, {
